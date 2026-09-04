@@ -1,0 +1,13 @@
+# --- Build artifacts ---
+app/src-tauri/target/
+app/node_modules/
+app/dist/
+node_modules/
+dist/
+
+# --- OS / editor ---
+.DS_Store
+.idea/
+
+# --- Agent tooling memory (local only, not project source) ---
+.workbuddy/

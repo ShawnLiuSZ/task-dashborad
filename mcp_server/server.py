@@ -1,0 +1,446 @@
+#!/usr/bin/env python3
+"""TaskBoard MCP server — stdio transport, JSON-RPC 2.0, standard-library only.
+
+Lets an AI agent (claude-code / codex / WorkBuddy / Cursor / doubao …) read and
+update the **local TaskBoard SQLite** database that the Tauri macOS app maintains.
+
+Why this exists (PRD §6 adaptation)
+-----------------------------------
+The PRD's original MCP design (§6) assumed writing session/status into GitHub
+Project v2 custom fields. The shipped app pivoted to a **fully local** model:
+everything lives in local SQLite and **never writes back to GitHub**. So this
+server targets the SQLite file directly (zero GitHub calls). It is the local
+equivalent of the PRD's `record_session` / `update_task_status` / `list_my_tasks`
+/ `get_task_status` / `clear_session` tools.
+
+Tools
+-----
+- list_my_tasks(status?, ownership?)      -> 任务列表（可按状态/归属过滤）
+- get_task_status(issue)                 -> 单个任务当前状态 + 已记录的 session/handoff
+- update_task_status(issue, status)      -> 改本地看板状态（不碰 GitHub）
+- record_session(issue, session_id, agent?) -> 记录中断会话 id（不碰 GitHub）
+- record_handoff(issue, text)            -> 记录交接任务详情（不碰 GitHub）
+- clear_session(issue)                   -> 任务完成后清空 session 字段
+
+`issue` 接受多种格式：
+- `repo#number`            e.g. `fad-backend#1234`
+- `owner/repo#number`      e.g. `FoodsUp-Inc/fad-backend#1234`
+- GitHub URL               e.g. `https://github.com/FoodsUp-Inc/fad-backend/issues/1234`
+
+数据库路径：默认 `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`，
+可用环境变量 `TASKBOARD_DB` 覆盖。
+"""
+
+import json
+import os
+import re
+import sqlite3
+import sys
+import time
+
+DB_PATH = os.environ.get(
+    "TASKBOARD_DB",
+    os.path.expanduser(
+        "~/Library/Application Support/com.liushizhao.taskboard/taskboard.db"
+    ),
+)
+
+STATUS_KEYS = {"todo", "doing", "processed", "done"}
+STATUS_CN = {
+    "待处理": "todo",
+    "处理中": "doing",
+    "已处理": "processed",
+    "已完成": "done",
+}
+
+# 列名（与 Tauri 后端 db.rs / commands.rs 保持一致）
+SELECT_COLS = (
+    "key, repo, number, title, status, ownership, assignees, "
+    "session_id, session_agent, handoff, updated_at"
+)
+
+
+# --------------------------------------------------------------------------- #
+# 参数解析与状态映射
+# --------------------------------------------------------------------------- #
+def resolve_status(s):
+    if s is None:
+        return None
+    s = str(s).strip()
+    if s in STATUS_KEYS:
+        return s
+    return STATUS_CN.get(s)
+
+
+def parse_issue_ref(ref):
+    """把多种 issue 引用归一化为 DB 主键 `repo#number`。"""
+    ref = (ref or "").strip()
+    if not ref:
+        raise ValueError("issue 引用为空")
+    # URL 形式：https://github.com/{owner}/{repo}/issues/{n}
+    m = re.search(r"github\.com/[^/]+/([^/#?]+)/(?:issues|pull)/(\d+)", ref)
+    if m:
+        return f"{m.group(1)}#{m.group(2)}"
+    # repo#number 或 owner/repo#number
+    if "#" in ref:
+        left, _, right = ref.rpartition("#")
+        try:
+            num = int(right)
+        except ValueError:
+            raise ValueError(f"issue 编号非法: {right!r}")
+        if num <= 0:
+            raise ValueError("issue 编号必须 > 0")
+        repo = left.rstrip("/").split("/")[-1]
+        if not repo:
+            raise ValueError(f"无法从引用解析仓库名: {ref!r}")
+        return f"{repo}#{num}"
+    raise ValueError(f"无法解析 issue 引用: {ref!r}")
+
+
+# --------------------------------------------------------------------------- #
+# SQLite 访问（单连接，顺序处理；设置 busy_timeout 以兼容 Tauri 进程并发占用）
+# --------------------------------------------------------------------------- #
+_conn = None
+
+
+def ensure_schema(c):
+    """幂等补齐应用新增列（与 Tauri 后端 db.rs::init 的迁移一致）。
+    即使 TaskBoard App 尚未启动过，MCP Server 也能直接读写既有数据库。"""
+    for col_sql in (
+        "ALTER TABLE tasks ADD COLUMN branch TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE tasks ADD COLUMN handoff TEXT NOT NULL DEFAULT ''",
+    ):
+        try:
+            c.execute(col_sql)
+        except sqlite3.OperationalError:
+            pass  # 列已存在则忽略
+
+
+def conn():
+    global _conn
+    if _conn is None:
+        if not os.path.exists(DB_PATH):
+            raise RuntimeError(
+                f"TaskBoard 数据库未找到: {DB_PATH}（请先运行一次 TaskBoard App 生成）"
+            )
+        c = sqlite3.connect(DB_PATH, timeout=10, check_same_thread=False)
+        c.execute("PRAGMA busy_timeout=5000")
+        c.row_factory = sqlite3.Row
+        ensure_schema(c)
+        _conn = c
+    return _conn
+
+
+def rows_to_dicts(rows):
+    return [dict(r) for r in rows]
+
+
+# --------------------------------------------------------------------------- #
+# 工具实现
+# --------------------------------------------------------------------------- #
+def tool_list_my_tasks(status=None, ownership=None):
+    sql = f"SELECT {SELECT_COLS} FROM tasks"
+    wheres, params = [], []
+    if status:
+        sk = resolve_status(status)
+        if not sk:
+            raise ValueError(f"非法状态: {status}")
+        wheres.append("status=?")
+        params.append(sk)
+    if ownership:
+        wheres.append("ownership=?")
+        params.append(ownership)
+    if wheres:
+        sql += " WHERE " + " AND ".join(wheres)
+    sql += " ORDER BY candidate_done ASC, status ASC, updated_at DESC"
+    return rows_to_dicts(conn().execute(sql, params).fetchall())
+
+
+def tool_get_task_status(issue):
+    key = parse_issue_ref(issue)
+    row = conn().execute(
+        f"SELECT {SELECT_COLS} FROM tasks WHERE key=?", (key,)
+    ).fetchone()
+    if not row:
+        return {"found": False, "key": key}
+    return {"found": True, "key": key, **dict(row)}
+
+
+def tool_update_task_status(issue, status):
+    key = parse_issue_ref(issue)
+    sk = resolve_status(status)
+    if not sk:
+        raise ValueError(f"非法状态: {status}（应为 todo/doing/processed/done 或中文四态）")
+    cur = conn().execute("UPDATE tasks SET status=? WHERE key=?", (sk, key))
+    if cur.rowcount == 0:
+        raise ValueError(f"任务不存在: {key}")
+    return {"ok": True, "key": key, "status": sk}
+
+
+def tool_record_session(issue, session_id, agent=None):
+    key = parse_issue_ref(issue)
+    sid = (session_id or "").strip()
+    if not sid:
+        raise ValueError("session_id 不能为空")
+    cur = conn().execute(
+        "UPDATE tasks SET session_id=?, session_agent=?, session_at=? WHERE key=?",
+        (sid, (agent or "").strip(), int(time.time()), key),
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"任务不存在: {key}")
+    return {"ok": True, "key": key}
+
+
+def tool_record_handoff(issue, text):
+    key = parse_issue_ref(issue)
+    text = text or ""
+    cur = conn().execute("UPDATE tasks SET handoff=? WHERE key=?", (text, key))
+    if cur.rowcount == 0:
+        raise ValueError(f"任务不存在: {key}")
+    return {"ok": True, "key": key, "handoff_len": len(text)}
+
+
+def tool_clear_session(issue):
+    key = parse_issue_ref(issue)
+    cur = conn().execute(
+        "UPDATE tasks SET session_id=NULL, session_agent=NULL WHERE key=?", (key,)
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"任务不存在: {key}")
+    return {"ok": True, "key": key}
+
+
+# --------------------------------------------------------------------------- #
+# 工具注册表（名称 + 入参 JSON Schema + 处理函数）
+# --------------------------------------------------------------------------- #
+TOOLS = [
+    {
+        "name": "list_my_tasks",
+        "description": "列出看板任务；可按 status(todo/doing/processed/done 或中文四态) 与 "
+        "ownership(assigned/notassignee/assigned-others) 过滤。返回任务数组。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "status": {"type": "string", "description": "可选，按看板状态过滤"},
+                "ownership": {"type": "string", "description": "可选，按归属过滤"},
+            },
+        },
+        "handler": tool_list_my_tasks,
+    },
+    {
+        "name": "get_task_status",
+        "description": "查询单个任务的当前看板状态，以及已记录的 session_id / session_agent / handoff。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue": {
+                    "type": "string",
+                    "description": "issue 引用：repo#number / owner/repo#number / GitHub URL",
+                }
+            },
+            "required": ["issue"],
+        },
+        "handler": tool_get_task_status,
+    },
+    {
+        "name": "update_task_status",
+        "description": "将任务在看板上的状态更新为 待处理/处理中/已处理/已完成（只写本地 SQLite，不碰 GitHub）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue": {"type": "string", "description": "issue 引用"},
+                "status": {
+                    "type": "string",
+                    "description": "目标状态：todo/doing/processed/done 或 待处理/处理中/已处理/已完成",
+                },
+            },
+            "required": ["issue", "status"],
+        },
+        "handler": tool_update_task_status,
+    },
+    {
+        "name": "record_session",
+        "description": "记录中断会话的 session id 到该任务卡片（session_id / session_agent / session_at）。"
+        "只写本地 SQLite，不碰 GitHub。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue": {"type": "string", "description": "issue 引用"},
+                "session_id": {"type": "string", "description": "会话 id（如 claude-code / codex 的会话标识）"},
+                "agent": {
+                    "type": "string",
+                    "description": "可选，来源 agent：claude-code / codex / opencode / zcode / workbuddy …",
+                },
+            },
+            "required": ["issue", "session_id"],
+        },
+        "handler": tool_record_session,
+    },
+    {
+        "name": "record_handoff",
+        "description": "记录「交接任务」详情到该任务（handoff 字段）。只写本地 SQLite，不碰 GitHub。"
+        "用于 agent 识别到用户「生成交接任务」类意图时调用。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue": {"type": "string", "description": "issue 引用"},
+                "text": {"type": "string", "description": "交接详情文本"},
+            },
+            "required": ["issue", "text"],
+        },
+        "handler": tool_record_handoff,
+    },
+    {
+        "name": "clear_session",
+        "description": "任务完成后清空 session_id / session_agent 字段（保留 session_at 审计）。只写本地 SQLite。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "issue": {"type": "string", "description": "issue 引用"},
+            },
+            "required": ["issue"],
+        },
+        "handler": tool_clear_session,
+    },
+]
+
+TOOL_BY_NAME = {t["name"]: t for t in TOOLS}
+
+
+# --------------------------------------------------------------------------- #
+# JSON-RPC 2.0 over stdio（LSP 风格 Content-Length 分帧）
+# --------------------------------------------------------------------------- #
+def read_message(stream):
+    """从二进制流读取一条带 Content-Length 头的 JSON-RPC 消息。EOF 时返回 None。"""
+    headers = {}
+    while True:
+        line = stream.readline()
+        if not line:
+            return None
+        if isinstance(line, bytes):
+            line = line.decode("utf-8", "replace")
+        line = line.rstrip("\r\n")
+        if line == "":
+            break
+        if ":" in line:
+            k, v = line.split(":", 1)
+            headers[k.strip().lower()] = v.strip()
+    try:
+        length = int(headers.get("content-length", "0"))
+    except ValueError:
+        length = 0
+    if length <= 0:
+        return None
+    body = stream.read(length)
+    if isinstance(body, bytes):
+        body = body.decode("utf-8", "replace")
+    return json.loads(body)
+
+
+def write_message(stream, msg):
+    data = json.dumps(msg, ensure_ascii=False).encode("utf-8")
+    stream.write(b"Content-Length: " + str(len(data)).encode() + b"\r\n\r\n")
+    stream.write(data)
+    stream.flush()
+
+
+def call_tool(name, arguments):
+    tool = TOOL_BY_NAME.get(name)
+    if not tool:
+        raise ValueError(f"未知工具: {name}")
+    kwargs = {k: v for k, v in (arguments or {}).items()}
+    return tool["handler"](**kwargs)
+
+
+def handle(msg):
+    method = msg.get("method")
+    msg_id = msg.get("id")
+
+    # 通知（无 id）不需要回复
+    if msg_id is None:
+        return None
+
+    if method == "initialize":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "protocolVersion": "2024-11-05",
+                "capabilities": {"tools": {}},
+                "serverInfo": {"name": "taskboard", "version": "0.3.10"},
+            },
+        }
+
+    if method == "ping":
+        return {"jsonrpc": "2.0", "id": msg_id, "result": {}}
+
+    if method == "tools/list":
+        return {
+            "jsonrpc": "2.0",
+            "id": msg_id,
+            "result": {
+                "tools": [
+                    {
+                        "name": t["name"],
+                        "description": t["description"],
+                        "inputSchema": t["inputSchema"],
+                    }
+                    for t in TOOLS
+                ]
+            },
+        }
+
+    if method == "tools/call":
+        name = msg.get("params", {}).get("name")
+        arguments = msg.get("params", {}).get("arguments", {})
+        try:
+            result = call_tool(name, arguments)
+            text = json.dumps(result, ensure_ascii=False)
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "content": [{"type": "text", "text": text}],
+                    "isError": False,
+                },
+            }
+        except Exception as e:  # noqa: BLE001 — 任何工具异常都转为 MCP 错误返回
+            return {
+                "jsonrpc": "2.0",
+                "id": msg_id,
+                "result": {
+                    "content": [{"type": "text", "text": f"错误：{e}"}],
+                    "isError": True,
+                },
+            }
+
+    # 未知方法
+    return {
+        "jsonrpc": "2.0",
+        "id": msg_id,
+        "error": {"code": -32601, "message": f"方法未实现: {method}"},
+    }
+
+
+def main():
+    istream = sys.stdin.buffer
+    ostream = sys.stdout.buffer
+    while True:
+        try:
+            msg = read_message(istream)
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[taskboard-mcp] 读取消息失败: {e}\n")
+            break
+        if msg is None:
+            break
+        try:
+            resp = handle(msg)
+        except Exception as e:  # noqa: BLE001
+            sys.stderr.write(f"[taskboard-mcp] 处理异常: {e}\n")
+            resp = None
+        if resp is not None:
+            write_message(ostream, resp)
+
+
+if __name__ == "__main__":
+    main()

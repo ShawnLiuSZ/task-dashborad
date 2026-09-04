@@ -1,0 +1,179 @@
+use std::sync::Mutex;
+use std::thread;
+use std::time::Duration;
+
+use rusqlite::Connection;
+use tauri::{
+    menu::{Menu, MenuItem},
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
+    AppHandle, Emitter, Manager,
+};
+
+mod commands;
+mod db;
+mod github;
+mod mcp;
+mod sync;
+
+pub struct AppState {
+    pub db: Mutex<Connection>,
+}
+
+const TRAY_ID: &str = "main";
+pub const SYNCED_EVENT: &str = "taskboard://synced";
+
+fn schedule_minutes(app: &AppHandle) -> u64 {
+    let state = app.state::<AppState>();
+    let mins = match state.db.lock() {
+        Ok(conn) => db::get_setting(&conn, "schedule_minutes")
+            .parse::<u64>()
+            .unwrap_or(60)
+            .max(5),
+        Err(_) => 60,
+    };
+    mins
+}
+
+fn toggle_window(app: &AppHandle) {
+    if let Some(w) = app.get_webview_window("main") {
+        if w.is_visible().unwrap_or(false) {
+            let _ = w.hide();
+        } else {
+            let _ = w.show();
+            let _ = w.set_focus();
+        }
+    }
+}
+
+fn refresh_tray(app: &AppHandle) {
+    let count: i64 = {
+        let state = app.state::<AppState>();
+        let n = match state.db.lock() {
+            Ok(conn) => conn
+                .query_row(
+                    "SELECT COUNT(*) FROM tasks WHERE status = 'doing' AND candidate_done = 0",
+                    [],
+                    |r| r.get(0),
+                )
+                .unwrap_or(0),
+            Err(_) => 0,
+        };
+        n
+    };
+    if let Some(tray) = app.tray_by_id(TRAY_ID) {
+        let _ = tray.set_title(if count > 0 { Some(count.to_string()) } else { None });
+        let _ = tray.set_tooltip(Some(format!("TaskBoard · 处理中 {}", count)));
+    }
+}
+
+/// 执行一次同步，并刷新菜单栏角标、通知前端刷新列表。
+pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
+    let state = app.state::<AppState>();
+    let result = {
+        let conn = match state.db.lock() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[sync] db lock 失败: {}", e);
+                return None;
+            }
+        };
+        match sync::run(&conn) {
+            Ok(r) => Some(r),
+            Err(e) => {
+                eprintln!("[sync] 同步失败: {}", e);
+                let _ = crate::db::set_setting(&conn, "last_sync_error", &e);
+                None
+            }
+        }
+    };
+    refresh_tray(app);
+    if let Some(res) = result {
+        let _ = app.emit(SYNCED_EVENT, res.clone());
+        Some(res)
+    } else {
+        None
+    }
+}
+
+/// MCP 子命令入口：argv 含 `mcp` 时由 `main.rs` 调用，以 stdio JSON-RPC 进程运行，
+/// 复用与 GUI 相同的本地 SQLite 数据库，不启动窗口。
+pub fn run_mcp() {
+    mcp::run();
+}
+
+pub fn run() {
+    tauri::Builder::default()
+        .setup(|app| {
+            let handle = app.handle().clone();
+            let conn = db::init(&handle).map_err(|e| {
+                Box::new(std::io::Error::new(std::io::ErrorKind::Other, e))
+                    as Box<dyn std::error::Error>
+            })?;
+            app.manage(AppState {
+                db: Mutex::new(conn),
+            });
+
+            let show_item = MenuItem::with_id(app, "show", "显示看板", true, None::<&str>)?;
+            let sync_item = MenuItem::with_id(app, "sync", "立即同步", true, None::<&str>)?;
+            let quit_item = MenuItem::with_id(app, "quit", "退出", true, None::<&str>)?;
+            let menu = Menu::with_items(app, &[&show_item, &sync_item, &quit_item])?;
+
+            let mut builder = TrayIconBuilder::with_id(TRAY_ID)
+                .menu(&menu)
+                .show_menu_on_left_click(false)
+                .on_menu_event(|app, event| match event.id().as_ref() {
+                    "show" => toggle_window(app),
+                    "sync" => {
+                        let h = app.clone();
+                        thread::spawn(move || {
+                            run_sync(&h);
+                        });
+                    }
+                    "quit" => app.exit(0),
+                    _ => {}
+                })
+                .on_tray_icon_event(|tray, event| {
+                    if let TrayIconEvent::Click {
+                        button: MouseButton::Left,
+                        button_state: MouseButtonState::Up,
+                        ..
+                    } = event
+                    {
+                        toggle_window(tray.app_handle());
+                    }
+                });
+
+            if let Some(icon) = app.default_window_icon().cloned() {
+                builder = builder.icon(icon);
+            }
+            builder.build(app)?;
+
+            let h_startup = handle.clone();
+            thread::spawn(move || {
+                thread::sleep(Duration::from_secs(2));
+                run_sync(&h_startup);
+            });
+
+            let h_tick = handle.clone();
+            thread::spawn(move || loop {
+                let mins = schedule_minutes(&h_tick);
+                thread::sleep(Duration::from_secs(mins * 60));
+                run_sync(&h_tick);
+            });
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            commands::list_tasks,
+            commands::sync_now,
+            commands::update_task_status,
+            commands::record_session,
+            commands::clear_session,
+            commands::record_handoff,
+            commands::get_settings,
+            commands::save_settings,
+            commands::open_in_browser,
+        ])
+        .run(tauri::generate_context!())
+        .expect("TaskBoard 启动失败");
+}
