@@ -1,6 +1,23 @@
 # 版本更新记录（Changelog）
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
+
+- **v0.3.17（2026-09-04）— GitHub OAuth Device Flow 登录（替换 PAT 粘贴）**
+  - 需求：登录 GitHub 不再手动创建/粘贴 PAT，改为「点按钮 → 浏览器授权」的链接登录体验。
+  - 实现（RFC 8628 Device Flow）：新增 `src-tauri/src/oauth.rs`——① `start` 申请设备码（`POST /login/device/code`，scope=`repo read:org read:project`）；② `poll_once` 轮询 access_token（`authorization_pending`/`slow_down`/`expired_token`/`access_denied` 全覆盖；**后端不 sleep**，由前端按 interval 控制节奏）。**token 全程不回流前端**——轮询成功后由后端探测 login 并直接建/更账号。
+  - 首次使用前置（一次性）：GitHub → Settings → Developer settings → OAuth Apps → New OAuth App（Callback 随意），勾选 **Enable Device Flow**，复制 Client ID 填入设置面板（存 `meta.oauth_client_id`）。此后登录零配置。
+  - UI（SettingsPanel）：添加账号表单改为「账号名称 + 组织 + Client ID + 通过 GitHub 授权登录」；授权面板大字显示 user_code + 「重新打开授权页」（用 `verification_uri_complete` 预填免输码）+ 轮询状态；移除旧的「GitHub Personal Access Token（兼容字段）」整块 UI（后端 `save_pat`/`test_pat`/`clear_pat` 命令保留兼容）。
+  - 命令注册：`save_oauth_client_id` / `device_login_start` / `device_login_poll`；`Settings` 增 `oauthClientId` 字段；MCP SERVER_VERSION 同步 0.3.17。
+  - 同登录同 login 的账号自动复用（更新 PAT 而非重复建号）；首个账号自动设为默认并激活。
+  - 验证：`cargo check` 零警告；`cargo test` 16 lib + 15 integration 全过（新增 oauth 单测 2 条）；`npm run build` 通过。
+
+- **v0.3.16.1（2026-09-04）— 修复首次启动 SIGABRT + SQLite WAL 加固**
+  - 现象：v0.3.16 二进制首次启动 1.6s 内 SIGABRT，连续复现；crash log 栈顶 `tao::app_delegate::did_finish_launching + 272`（C 边界 `panic_cannot_unwind`），threadState.x22 = `sqlite3azCompileOpt`（SQLite 编译 SQL 时 panic）。
+  - 根因链：v0.3.16 启动事务（建 accounts 表 + 写默认设置 + ALTER ADD account_id）中途 abort → DELETE 模式残留 `.db-journal` 半提交 → bundled SQLite 0.31 在 macOS 26.6 上 forward-rollback 失败报 "disk I/O error" → 列迁移失败被 `let _ = ...` 静默吞掉 → DB 半新半旧 → 后续同步 panic。系统 sqlite3 3.51 能正常读写，证明文件本身健康，是 bundled SQLite 对残留 journal 的处理差异。
+  - DB 恢复（手工）：备份后移走 `-journal`，用系统 sqlite3 补上 `account_id` 列；78 条任务完好。
+  - 代码加固（`db.rs::open_db`）：① 强制 `PRAGMA journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000`——WAL 模式下主 DB 文件始终一致可读，崩溃天然安全；② ALTER 失败不再吞，`eprintln!` 显式记录。
+  - 新增测试：`open_db_uses_wal_journal_mode` / `open_db_recovers_from_dirty_journal_file`（伪造残留 journal 验证 open_db 仍成功）。
+
 - **v0.3.1（2026-09-04）— 看板漏拉「分配给我」的任务**
   - 现象：看板随机缺失已分配给我的 issue（如 `fad-backend#1200` 及 #1066/#1071/#1072/#1100/#1138/#1139、`pq-backend#259`）。
   - 根因：原同步仅用 `involves:<login>` 单一查询，而 GitHub 的 `involves:` 搜索对 assignee 覆盖不稳定，会偶发漏拉已分配 issue。

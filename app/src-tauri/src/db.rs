@@ -7,6 +7,16 @@ use tauri::{AppHandle, Manager};
 pub const APP_IDENTIFIER: &str = "com.liushizhao.taskboard";
 
 const SCHEMA: &str = r#"
+CREATE TABLE IF NOT EXISTS accounts (
+  id          INTEGER PRIMARY KEY AUTOINCREMENT,
+  label       TEXT NOT NULL,
+  login       TEXT NOT NULL,
+  org         TEXT NOT NULL,
+  pat_token   TEXT NOT NULL,
+  is_default  INTEGER NOT NULL DEFAULT 0,
+  created_at  INTEGER NOT NULL
+);
+
 CREATE TABLE IF NOT EXISTS tasks (
   key            TEXT PRIMARY KEY,
   owner          TEXT NOT NULL,
@@ -31,10 +41,13 @@ CREATE TABLE IF NOT EXISTS tasks (
   pr_number      INTEGER NOT NULL DEFAULT 0,
   pr_url         TEXT NOT NULL DEFAULT '',
   updated_at     TEXT,
-  synced_at      INTEGER NOT NULL
+  synced_at      INTEGER NOT NULL,
+  -- v0.3.16：任务归属账号（来自 accounts.id）。v0.3.15 之前的数据迁移后默认 1。
+  account_id     INTEGER NOT NULL DEFAULT 1
 );
 CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
 CREATE INDEX IF NOT EXISTS idx_tasks_ownership ON tasks(ownership);
+CREATE INDEX IF NOT EXISTS idx_tasks_account ON tasks(account_id);
 
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
@@ -49,9 +62,16 @@ pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("org", "FoodsUp-Inc"),
     // v0.3.15：GitHub Personal Access Token。完全替换 gh CLI 路径，
     // 由设置面板（SettingsPanel）粘入后写入；为空时同步跳过并提示。
+    // v0.3.16 起 PAT 迁到独立账号表，本字段仅作兼容兜底（详见 migrate_v0315_to_accounts）。
     ("pat_token", ""),
     // v0.3.15：最近一次同步的错误信息（PAT 为空 / API 错误等），前端可读此字段显示横幅。
     ("last_sync_error", ""),
+    // v0.3.16：当前激活账号 id（指向 accounts.id），与 view_mode 共同决定 sync 范围。
+    ("active_account_id", "1"),
+    // v0.3.16：视图模式。'single'=仅同步 active 账号；'all'=同步所有账号。
+    ("view_mode", "single"),
+    // v0.3.17：GitHub OAuth Device Flow 的 client_id（用户注册 OAuth App 后填入一次）。
+    ("oauth_client_id", ""),
 ];
 
 pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
@@ -79,8 +99,21 @@ pub fn db_path_default() -> Result<PathBuf, String> {
 
 /// 打开（必要时创建）数据库连接，应用 schema 与历史迁移，并写入默认设置。
 /// GUI 与 MCP 子命令共用此函数，确保表结构单一来源、无漂移。
+///
+/// **崩溃恢复说明（v0.3.16+）**：早期默认 `journal_mode=DELETE`，进程崩溃时未提交
+/// 事务会留下 `.db-journal` 文件，下次启动必须先 replay/rollback 才能继续——一旦
+/// journal 不完整（如早期 v0.3.16 二进制在 macOS 26.6 的 SIGABRT），整个 DB 会
+/// 进入"disk I/O error"无限循环。本函数强制 `journal_mode=WAL`，配合 `synchronous=NORMAL`：
+/// WAL 文件 (`-wal`/`-shm`) 与主 DB 文件始终一致可读，崩溃不会让整个 DB 锁死。
+/// WAL 与 DELETE 共存时不冲突——已有的 `-journal` 文件如果存在，SQLite 会自动 forward-rollback。
 pub fn open_db(path: &Path) -> Result<Connection, String> {
     let conn = Connection::open(path).map_err(|e| format!("打开数据库失败: {}", e))?;
+    // v0.3.16+: WAL 模式 + NORMAL 同步。WAL 文件保留部分未 checkpoint 数据，崩溃后仍可读。
+    // 必须先设（再做任何事务），否则后续 BEGIN/COMMIT 仍走 DELETE 路径。
+    let _ = conn.pragma_update(None, "journal_mode", "WAL");
+    let _ = conn.pragma_update(None, "synchronous", "NORMAL");
+    let _ = conn.pragma_update(None, "busy_timeout", 5000);
+    // schema 初始化（WAL 模式下多个连接可并发读，但写仍互斥）。
     conn.execute_batch(SCHEMA)
         .map_err(|e| format!("初始化表结构失败: {}", e))?;
     // 迁移：兼容已存在的旧库，缺列则补（列已存在时 ALTER 会报错，忽略即可）。
@@ -96,8 +129,14 @@ pub fn open_db(path: &Path) -> Result<Connection, String> {
         // v0.3.10：关联 PR 的分支（head.ref），以及 agent 写入的交接任务详情。
         "ALTER TABLE tasks ADD COLUMN branch TEXT NOT NULL DEFAULT ''",
         "ALTER TABLE tasks ADD COLUMN handoff TEXT NOT NULL DEFAULT ''",
+        // v0.3.16：任务归属账号；旧库默认 1（迁移会先插一条 accounts，再保证该 id 命中）。
+        "ALTER TABLE tasks ADD COLUMN account_id INTEGER NOT NULL DEFAULT 1",
     ] {
-        let _ = conn.execute(col_sql, []);
+        if let Err(e) = conn.execute(col_sql, []) {
+            // **不再吞掉**：v0.3.16 之前是 `let _ = ...`，导致脏 DB 被静默接受，下次 sync
+            // 触发 panic。改为 eprintln 显式记录（前端暂不展示，便于事后诊断）。
+            eprintln!("[db] 列迁移跳过（已存在或 schema 不兼容）: {} | sql={}", e, col_sql);
+        }
     }
     for (k, v) in DEFAULT_SETTINGS {
         conn.execute(
@@ -106,7 +145,273 @@ pub fn open_db(path: &Path) -> Result<Connection, String> {
         )
         .map_err(|e| format!("写入默认设置失败: {}", e))?;
     }
+    // v0.3.15 → v0.3.16 自动迁移：把 v0.3.15 写在 meta.pat_token 的单账号 PAT
+    // 迁到 accounts 表（首条默认账号）。原 meta 字段保留作兼容兜底，单账号视图仍可读。
+    if let Err(e) = migrate_v0315_to_accounts(&conn) {
+        eprintln!("[db] v0.3.15 → v0.3.16 迁移失败（已保留兜底字段）: {}", e);
+    }
     Ok(conn)
+}
+
+/// 把 v0.3.15 写在 `meta.pat_token` 的 PAT 自动迁到 `accounts` 表第一条记录。
+///
+/// 触发条件（全部满足才迁移）：
+/// 1. `accounts` 表为空（首次启动 v0.3.16，无任何账号）
+/// 2. `meta.pat_token` 非空（v0.3.15 已配过 PAT，不是新用户）
+///
+/// 迁移动作：
+/// - INSERT 一条记录：label='默认账号', login=<meta.login>, org=<meta.org>,
+///   pat_token=<meta.pat_token>, is_default=1
+/// - meta.active_account_id 设为新插入的 id
+/// - 若 tasks.account_id 当前默认 1，但 accounts.id=1 是新插入的，需要把所有
+///   旧任务的 account_id 调整为新插入 id（避免后续多账号视图下误归到一个不存在的账号）
+fn migrate_v0315_to_accounts(conn: &Connection) -> Result<(), String> {
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0))
+        .unwrap_or(0);
+    if count > 0 {
+        return Ok(()); // 已迁过或用户主动加过账号，不重复处理
+    }
+    let pat = get_setting(conn, "pat_token");
+    if pat.trim().is_empty() {
+        return Ok(()); // 新用户，没历史 PAT 可迁
+    }
+    let login = get_setting(conn, "login");
+    let org = get_setting(conn, "org");
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    conn.execute(
+        "INSERT INTO accounts (label, login, org, pat_token, is_default, created_at)
+         VALUES (?1, ?2, ?3, ?4, 1, ?5)",
+        rusqlite::params!["默认账号", login, org, pat, now],
+    )
+    .map_err(|e| format!("写入默认账号失败: {}", e))?;
+    let new_id: i64 = conn
+        .query_row("SELECT last_insert_rowid()", [], |r| r.get(0))
+        .unwrap_or(1);
+    // 把当前默认账号 id（DEFAULT_SETTINGS 写的是 1）调整到新插入的 id。
+    // 旧任务的 account_id 默认 1 也要改到新插入的 id——确保 view 过滤正确。
+    if new_id != 1 {
+        let _ = conn.execute(
+            "UPDATE tasks SET account_id = ?1 WHERE account_id = 1",
+            rusqlite::params![new_id],
+        );
+    }
+    set_setting(conn, "active_account_id", &new_id.to_string())?;
+    eprintln!(
+        "[db] v0.3.15 → v0.3.16 自动迁移完成：新账号 id={} @{} (org={})",
+        new_id, login, org
+    );
+    Ok(())
+}
+
+/// 账号记录（与 accounts 表一一对应；前端用）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Account {
+    pub id: i64,
+    pub label: String,
+    pub login: String,
+    pub org: String,
+    /// 是否已配置 PAT（不回显 token 本体，避免泄漏）。
+    pub has_pat: bool,
+    pub is_default: bool,
+    pub created_at: i64,
+}
+
+/// 列出全部账号，按 id 升序。
+pub fn list_accounts(conn: &Connection) -> Result<Vec<Account>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, label, login, org, pat_token, is_default, created_at
+             FROM accounts ORDER BY id ASC",
+        )
+        .map_err(|e| format!("查询账号列表失败: {}", e))?;
+    let rows = stmt
+        .query_map([], |r| {
+            let pat: String = r.get(4)?;
+            let is_default: i64 = r.get(5)?;
+            Ok(Account {
+                id: r.get(0)?,
+                label: r.get(1)?,
+                login: r.get(2)?,
+                org: r.get(3)?,
+                has_pat: !pat.is_empty(),
+                is_default: is_default != 0,
+                created_at: r.get(6)?,
+            })
+        })
+        .map_err(|e| format!("遍历账号失败: {}", e))?;
+    let mut out: Vec<Account> = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("读取账号行失败: {}", e))?);
+    }
+    Ok(out)
+}
+
+/// 读取单条账号的完整信息（含 PAT），仅后端内部使用；不在前端暴露。
+pub fn get_account_pat(conn: &Connection, id: i64) -> Result<(String, String, String), String> {
+    conn.query_row(
+        "SELECT login, org, pat_token FROM accounts WHERE id = ?1",
+        [id],
+        |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)),
+    )
+    .map_err(|e| format!("读取账号 #{id} 失败: {e}"))
+}
+
+/// 默认账号 id：is_default=1 的那条；若无则退回 id 最小的。
+pub fn default_account_id(conn: &Connection) -> Result<i64, String> {
+    let id: Option<i64> = conn
+        .query_row(
+            "SELECT id FROM accounts WHERE is_default = 1 ORDER BY id ASC LIMIT 1",
+            [],
+            |r| r.get(0),
+        )
+        .ok();
+    if let Some(id) = id {
+        return Ok(id);
+    }
+    conn.query_row("SELECT id FROM accounts ORDER BY id ASC LIMIT 1", [], |r| r.get(0))
+        .map_err(|e| format!("无任何账号: {e}"))
+}
+
+/// 把 id 指定的账号设为默认（is_default=1，其他归 0）。
+pub fn set_default_account(conn: &Connection, id: i64) -> Result<(), String> {
+    let tx = conn
+        .unchecked_transaction()
+        .map_err(|e| format!("开启事务失败: {e}"))?;
+    tx.execute("UPDATE accounts SET is_default = 0", [])
+        .map_err(|e| format!("清空默认失败: {e}"))?;
+    let n = tx
+        .execute("UPDATE accounts SET is_default = 1 WHERE id = ?1", [id])
+        .map_err(|e| format!("设置默认失败: {e}"))?;
+    if n == 0 {
+        return Err(format!("账号 #{id} 不存在"));
+    }
+    tx.commit().map_err(|e| format!("提交失败: {e}"))?;
+    Ok(())
+}
+
+/// 插入一条新账号；返回新账号 id。若该账号是首个，自动设为默认。
+pub fn insert_account(
+    conn: &Connection,
+    label: &str,
+    login: &str,
+    org: &str,
+    pat: &str,
+) -> Result<i64, String> {
+    let label = label.trim();
+    let login = login.trim();
+    let org = org.trim();
+    let pat = pat.trim();
+    if label.is_empty() {
+        return Err("账号名称（label）不能为空".to_string());
+    }
+    if login.is_empty() {
+        return Err("GitHub login 不能为空".to_string());
+    }
+    if org.is_empty() {
+        return Err("组织（org）不能为空".to_string());
+    }
+    if pat.is_empty() {
+        return Err("PAT 不能为空".to_string());
+    }
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_secs() as i64)
+        .unwrap_or(0);
+    // 若 accounts 表为空，自动设为默认；否则显式非默认。
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM accounts", [], |r| r.get(0))
+        .unwrap_or(0);
+    let is_default = if count == 0 { 1 } else { 0 };
+    conn.execute(
+        "INSERT INTO accounts (label, login, org, pat_token, is_default, created_at)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6)",
+        rusqlite::params![label, login, org, pat, is_default, now],
+    )
+    .map_err(|e| format!("插入账号失败: {e}"))?;
+    let id: i64 = conn
+        .query_row("SELECT last_insert_rowid()", [], |r| r.get(0))
+        .unwrap_or(0);
+    Ok(id)
+}
+
+/// 更新账号字段；pat=None 表示不动，pat=Some("") 表示清空，pat=Some(s) 表示替换。
+pub fn update_account(
+    conn: &Connection,
+    id: i64,
+    label: Option<&str>,
+    login: Option<&str>,
+    org: Option<&str>,
+    pat: Option<&str>,
+) -> Result<(), String> {
+    let mut sets: Vec<String> = Vec::new();
+    let mut params: Vec<String> = Vec::new();
+    if let Some(v) = label {
+        if v.trim().is_empty() {
+            return Err("账号名称不能为空".to_string());
+        }
+        sets.push("label = ?".to_string());
+        params.push(v.trim().to_string());
+    }
+    if let Some(v) = login {
+        if v.trim().is_empty() {
+            return Err("GitHub login 不能为空".to_string());
+        }
+        sets.push("login = ?".to_string());
+        params.push(v.trim().to_string());
+    }
+    if let Some(v) = org {
+        if v.trim().is_empty() {
+            return Err("组织不能为空".to_string());
+        }
+        sets.push("org = ?".to_string());
+        params.push(v.trim().to_string());
+    }
+    if let Some(v) = pat {
+        sets.push("pat_token = ?".to_string());
+        params.push(v.trim().to_string());
+    }
+    if sets.is_empty() {
+        return Ok(()); // 没改任何字段
+    }
+    let sql = format!("UPDATE accounts SET {} WHERE id = ?", sets.join(", "));
+    let mut all_params: Vec<&dyn rusqlite::ToSql> =
+        params.iter().map(|s| s as &dyn rusqlite::ToSql).collect();
+    all_params.push(&id);
+    let n = conn
+        .execute(&sql, all_params.as_slice())
+        .map_err(|e| format!("更新账号失败: {e}"))?;
+    if n == 0 {
+        return Err(format!("账号 #{id} 不存在"));
+    }
+    Ok(())
+}
+
+/// 删除账号；若该账号下还有任务，task.account_id 保留为旧值（不级联删除），
+/// 由 UI 在卡片上以「账号已删除」徽章标记。
+/// 默认账号不可删除；须先把另一个账号设为默认。
+pub fn delete_account(conn: &Connection, id: i64) -> Result<(), String> {
+    let is_default: i64 = conn
+        .query_row(
+            "SELECT is_default FROM accounts WHERE id = ?1",
+            [id],
+            |r| r.get(0),
+        )
+        .unwrap_or(0);
+    if is_default != 0 {
+        return Err("默认账号不可删除，请先把另一个账号设为默认".to_string());
+    }
+    let n = conn
+        .execute("DELETE FROM accounts WHERE id = ?1", [id])
+        .map_err(|e| format!("删除账号失败: {e}"))?;
+    if n == 0 {
+        return Err(format!("账号 #{id} 不存在"));
+    }
+    Ok(())
 }
 
 pub fn init(app: &AppHandle) -> Result<Connection, String> {

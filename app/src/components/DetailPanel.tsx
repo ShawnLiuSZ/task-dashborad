@@ -217,7 +217,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           {task.mentioned && " · 评论区有人 @我"}
         </div>
         {task.branch && (
-          <div className="muted small top-gap">🌿 分支：{task.branch}</div>
+          <div className="branch-line top-gap">🌿 分支：{task.branch}</div>
         )}
         <div className="muted small top-gap">
           会话与状态只存在本地，不会写回 GitHub

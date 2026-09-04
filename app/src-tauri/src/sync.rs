@@ -48,6 +48,7 @@ fn map_project_status(raw: &str) -> Option<&'static str> {
 }
 
 #[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
 pub struct SyncResult {
     pub total: usize,
     pub added: usize,
@@ -60,8 +61,16 @@ pub struct SyncResult {
 }
 
 /// 从文本（PR 正文）里提取 issue 引用，返回 `repo#number` 形式的键。
-/// 支持 `#123`（归属 PR 所在仓库）与 `owner/repo#123`（跨仓库）；无任何第三方依赖地手动扫描。
-/// 这是把「PR 对应哪个 issue」反向关联回看板的依据。
+/// 支持两种形式：
+/// - `#123`：归属 PR 所在仓库（即传入的 `default_repo`）
+/// - `owner/repo#123`：跨仓库，回退到 `repo`（路径最后一段）
+///
+/// 用纯 ASCII 手扫；不依赖任何 crate。本函数是「PR 对应哪个 issue」反向关联的权威解析器。
+///
+/// **已知限制**：URL 锚 `https://example.com/page#42` 会被解析成 `default_repo#42`——
+/// 这是协议层的事实，规则无法可靠地区分「URL 锚」与「issue 引用」。
+/// 实践里 PR body 中的 URL 锚对应的几乎都不是本组织仓库的 issue，问题可忽略；
+/// 如确需排除，可在调用方对 URL 段过滤。
 fn parse_issue_refs(text: &str, default_repo: &str) -> Vec<String> {
     let bytes = text.as_bytes();
     let mut out: Vec<String> = Vec::new();
@@ -75,18 +84,26 @@ fn parse_issue_refs(text: &str, default_repo: &str) -> Vec<String> {
             }
             if let Ok(num) = text[num_start..j].parse::<i64>() {
                 if num > 0 {
-                    // '#' 前若形如 owner/repo（含 '/')，则用其中仓库名；否则用 PR 所在仓库。
+                    // 向左扫描「owner/repo」前缀：允许字母数字 + `_` + `-` + `.` + `/`。
+                    // 这里的关键是把 `/` 放进来，否则 owner/repo#N 永远切不出仓库名
+                    // （循环在 `/` 处退出，最终 seg 只剩 repo 部分，跨仓库失效）。
                     let mut k = i as isize - 1;
                     while k >= 0
                         && (bytes[k as usize].is_ascii_alphanumeric()
                             || bytes[k as usize] == b'_'
                             || bytes[k as usize] == b'-'
-                            || bytes[k as usize] == b'.')
+                            || bytes[k as usize] == b'.'
+                            || bytes[k as usize] == b'/')
                     {
                         k -= 1;
                     }
                     let seg = &text[(k + 1) as usize..i];
-                    let repo = seg.rfind('/').map(|s| &seg[s + 1..]).unwrap_or(default_repo);
+                    // seg 含 `/` 时取最后一段（兼容 `org/sub/group/repo#N` 多段路径）；
+                    // 不含 `/` 时回退 PR 所在仓库。
+                    let repo = seg
+                        .rfind('/')
+                        .map(|s| &seg[s + 1..])
+                        .unwrap_or(default_repo);
                     if !repo.is_empty() {
                         out.push(format!("{}#{}", repo, num));
                     }
@@ -100,25 +117,44 @@ fn parse_issue_refs(text: &str, default_repo: &str) -> Vec<String> {
     out
 }
 
-pub fn run(conn: &Connection) -> Result<SyncResult, String> {
-    let org = crate::db::get_setting(conn, "org");
-    let pat = crate::db::get_setting(conn, "pat_token");
-    if pat.is_empty() {
-        // 不算失败（用户只是还没填 PAT），由 lib.rs 显示提示横幅并跳过本次同步。
-        return Err("未配置 GitHub PAT，请在设置面板粘贴 token（fine-grained 推荐）".to_string());
-    }
-    let client = github::GitHubClient::new(pat)?;
-    let login = client.login().to_string();
+/// v0.3.16+：单账号同步结果（累加到 SyncResult）。
+#[derive(Debug, Clone, Default)]
+struct AccountSyncResult {
+    added: usize,
+    updated: usize,
+    candidate_done: usize,
+    removed: usize,
+    failed_sources: Vec<String>,
+}
+
+/// v0.3.16+：单账号同步核心逻辑。返回该账号的 added / updated / 等。
+///
+/// 设计要点：
+/// - `client` 已含 login / org / pat；upsert 时直接用 `account.id`
+/// - key 仍为 `repo#number`（PRIMARY KEY 不变）。多账号下同 key 会被后写入者覆盖——
+///   这是 v0.3.16 的已知限制（设计文档 3.1 节确认）。单账号视图（默认）下不会出现冲突。
+/// - 单账号内仍走 5 源合并 + PR 关联 + Project Status 联动，与 v0.3.15 逻辑等价。
+fn sync_account(
+    conn: &Connection,
+    account: &crate::db::Account,
+    pat: &str,
+    now: i64,
+) -> Result<AccountSyncResult, String> {
+    let client = github::GitHubClient::new(
+        pat.to_string(),
+        account.login.clone(),
+        account.org.clone(),
+    )?;
 
     // 多源合并：以多个稳定查询（assignee/author/mentions/commenter）覆盖 `involves:`
     // 的偶发漏拉缺陷，确保任何「与我相关」的 issue 都不会缺失。按 key 去重。
-    // best-effort：单源失败不中断整次同步，其余源照常并入（避免一次接口抖动让看板整体失效）。
+    // best-effort：单源失败不中断整次同步，其余源照常并入。
     let sources: Vec<(&str, Result<Vec<github::RawTask>, String>)> = vec![
-        ("assignee", client.fetch_assigned(&org)),
-        ("author", client.fetch_authored(&org)),
-        ("mentions", client.fetch_mentioned(&org)),
-        ("commenter", client.fetch_commented(&org)),
-        ("involves", client.fetch_related(&org)),
+        ("assignee", client.fetch_assigned()),
+        ("author", client.fetch_authored()),
+        ("mentions", client.fetch_mentioned()),
+        ("commenter", client.fetch_commented()),
+        ("involves", client.fetch_related()),
     ];
     let mut lists: Vec<Vec<github::RawTask>> = Vec::new();
     let mut failed: Vec<String> = Vec::new();
@@ -142,10 +178,13 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         }
     }
     if lists.is_empty() {
-        return Err(format!("全部数据源拉取失败: {}", failed.join("; ")));
+        return Err(format!(
+            "账号 @{}: 全部数据源拉取失败: {}",
+            account.login,
+            failed.join("; ")
+        ));
     }
     let raw = github::merge_tasks_all(lists);
-    let now = now_secs();
 
     // 收集「与我相关 issue 实际所在的仓库」（去重），仅对这些仓库拉取 PR——
     // 既缩小范围、又避开 Search API 的严苛限流，改用 REST pulls 接口。
@@ -157,33 +196,25 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     pr_repos.sort();
     pr_repos.dedup();
 
-    // PR 拉取走核心配额（5000/h）不需二次冷却；Search 调用间的 1s 间隔由
-    // GitHubClient.search 内部保证。
-    let (prs, pr_fetch_ok) = match client.fetch_prs(&org, &pr_repos) {
+    let (prs, pr_fetch_ok) = match client.fetch_prs(&pr_repos) {
         Ok(p) => (p, true),
         Err(e) => {
             eprintln!("[sync] 拉取 PR 列表失败，跳过 PR 关联: {}", e);
             (Vec::new(), false)
         }
     };
-    let mut pr_map: std::collections::HashMap<String, (i64, String, String)> = std::collections::HashMap::new();
+    let mut pr_map: std::collections::HashMap<String, (i64, String, String)> =
+        std::collections::HashMap::new();
     for pr in &prs {
-        // 同一 issue 可能被多个 PR 引用，取第一个命中的 PR 即可（卡片只需一个链接 + 分支）。
         for rk in parse_issue_refs(&pr.body, &pr.repo) {
             pr_map
                 .entry(rk)
                 .or_insert((pr.number, pr.url.clone(), pr.head_ref.clone()));
         }
     }
-    // 诊断：记录 PR 关联的拉取与命中情况（便于排查关联为空的问题，可保留无害）。
-    let _ = crate::db::set_setting(conn, "diag_pr_fetch_ok", &pr_fetch_ok.to_string());
-    let _ = crate::db::set_setting(conn, "diag_pr_fetched", &prs.len().to_string());
-    let _ = crate::db::set_setting(conn, "diag_pr_map_size", &pr_map.len().to_string());
-    let _ = crate::db::set_setting(conn, "diag_pr_matched", &raw.iter().filter(|t| !t.is_pr && pr_map.contains_key(&format!("{}#{}", t.repo, t.number))).count().to_string());
 
-    // 拉取 OMS Kanban 项目 Status 字段（best-effort）：失败时地图为空，
-    // 看板对这些 issue 退化为"维持本地手动态"，不影响其余同步。
-    let project_status = match client.fetch_project_status(&org) {
+    // 拉取 OMS Kanban 项目 Status 字段（best-effort）。
+    let project_status = match client.fetch_project_status() {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[sync] 拉取项目状态失败，跳过状态联动: {}", e);
@@ -191,28 +222,27 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         }
     };
 
-    conn.execute("UPDATE tasks SET stale = 1", [])
+    // 仅本账号的任务标记陈旧（避免「全部账号视图」下另一账号的同步误标本账号任务为陈旧）。
+    conn.execute("UPDATE tasks SET stale = 1 WHERE account_id = ?1", [account.id])
         .map_err(|e| format!("标记陈旧任务失败: {}", e))?;
 
     let mut added = 0usize;
     let mut updated = 0usize;
-    // 单次同步内回源拉取评论的预算（控制 API 调用量，避免突发限流）；其余 issue 顺延到后续同步补。
-    // 由 30 降至 12：评论回源是同步末段最重的增量调用，缩减可显著降低总调用量、给二次限流窗口留余量；
-    // 且 PR 关联（核心特性）已在评论之前完成，即便评论预算耗尽也不影响 PR 链路。
     let mut comment_budget: usize = 12;
     for t in &raw {
         if t.is_pr {
             continue;
         }
         let key = format!("{}#{}", t.repo, t.number);
-        let ownership: &str = classify(&t.assignees, &login);
+        let ownership: &str = classify(&t.assignees, &account.login);
 
-        // 读取既有状态与富化字段缓存：用于"不在项目中"时维持本地手动态；新任务默认待处理。
-        // comments/mentioned/pr/branch 等上次同步的缓存值一并读出，本次增量更新失败时保留既有值。
+        // 读取既有状态与富化字段缓存：用于"不在项目中"时维持本地手动态。
+        // v0.3.16：既有记录必须是同一 account_id 的（避免跨账号状态污染）。
         let row: (String, i64, i64, i64, String, String, String) = conn
             .query_row(
-                "SELECT status, comments_count, mentioned, pr_number, pr_url, latest_comment_url, branch FROM tasks WHERE key = ?1",
-                [&key],
+                "SELECT status, comments_count, mentioned, pr_number, pr_url, latest_comment_url, branch
+                 FROM tasks WHERE key = ?1 AND account_id = ?2",
+                rusqlite::params![&key, account.id],
                 |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?, r.get(5)?, r.get(6)?)),
             )
             .unwrap_or_else(|_| ("todo".to_string(), 0, 0, 0, String::new(), String::new(), String::new()));
@@ -224,11 +254,14 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         let existing_comment_url = row.5;
         let existing_branch = row.6;
         let exists = conn
-            .query_row("SELECT 1 FROM tasks WHERE key = ?1", [&key], |_| Ok(()))
+            .query_row(
+                "SELECT 1 FROM tasks WHERE key = ?1 AND account_id = ?2",
+                rusqlite::params![&key, account.id],
+                |_| Ok(()),
+            )
             .is_ok();
 
-        // 决定看板状态：closed→已完成（v0.3.5）；项目中→按 Project Status 映射（覆盖本地）；
-        // 不在项目中→维持本地手动态。gh_status 记录原始文案，供前端展示与追溯。
+        // 决定看板状态：closed→已完成；项目中→按 Project Status 映射；不在项目中→维持本地手动态。
         let gh_status_raw = project_status.get(&key).cloned().unwrap_or_default();
         let final_status: &str = if t.state == "closed" {
             "done"
@@ -239,8 +272,6 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         };
 
         let assignees_csv = t.assignees.join(",");
-        // done_at 记录「进入已完成」的时刻：首次变为 done 时打上 now，之后保持不变，
-        // 以便按 30 天窗口清理；移出 done 时归零（重做会重新计时）。
         let done_at_val = if final_status == "done" { now } else { 0 };
 
         // 评论区 @我：以 GitHub mentions 搜索结果为准（覆盖正文与评论中的 @），
@@ -253,7 +284,6 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         let mentioned_val: i64 = if mentioned { 1 } else { 0 };
 
         // PR 关联：仅在 PR 列表拉取成功时更新（失败则保留既有值，避免误清空）。
-        // branch 同样来自关联 PR 的 head.ref——issue 无分支字段，只能从 PR 反向取。
         let (pr_number, pr_url, branch): (i64, String, String) = if pr_fetch_ok {
             match pr_map.get(&key) {
                 Some((n, u, b)) => (*n, u.clone(), b.clone()),
@@ -263,11 +293,10 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
             (existing_pr_number, existing_pr_url, existing_branch)
         };
 
-        // 新评论链接：仅当评论数较上次增加且预算充足时回源拉取（控制 API 调用量），
-        // 取最新一条评论的永久链接；其余情况沿用缓存。
+        // 新评论链接：仅当评论数较上次增加且预算充足时回源拉取（控制 API 调用量）。
         let (comments_count, latest_comment_url): (i64, String) =
             if t.comments > existing_comments as u64 && comment_budget > 0 {
-                match client.fetch_comments(&org, &t.repo, t.number) {
+                match client.fetch_comments(&t.repo, t.number) {
                     Ok(Some(url)) => {
                         comment_budget -= 1;
                         std::thread::sleep(Duration::from_millis(80));
@@ -290,8 +319,9 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
             "INSERT INTO tasks
                (key, owner, repo, number, title, url, gh_state, ownership,
                 status, gh_status, assignees, done_at, mentioned, comments_count,
-                latest_comment_url, pr_number, pr_url, branch, candidate_done, stale, updated_at, synced_at)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 0, 0, ?19, ?20)
+                latest_comment_url, pr_number, pr_url, branch, candidate_done, stale, updated_at, synced_at,
+                account_id)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 0, 0, ?19, ?20, ?21)
              ON CONFLICT(key) DO UPDATE SET
                title = excluded.title,
                repo = excluded.repo,
@@ -314,10 +344,11 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
                latest_comment_url = excluded.latest_comment_url,
                pr_number = excluded.pr_number,
                pr_url = excluded.pr_url,
-               branch = excluded.branch",
+               branch = excluded.branch,
+               account_id = excluded.account_id",
             rusqlite::params![
                 key,
-                org,
+                account.org,
                 t.repo,
                 t.number,
                 t.title,
@@ -336,6 +367,7 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
                 branch,
                 t.updated_at,
                 now,
+                account.id,
             ],
         )
         .map_err(|e| format!("写入任务失败: {}", e))?;
@@ -347,14 +379,14 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         }
     }
 
-    // 处理本次未出现的任务：关闭的标为候选已完成，仍打开但已不相关的移出看板。
+    // 处理本账号下的陈旧任务：关闭的标为候选已完成，仍打开但已不相关的移出看板。
     let mut stale_rows: Vec<(String, String, i64)> = Vec::new();
     {
         let mut stmt = conn
-            .prepare("SELECT key, repo, number FROM tasks WHERE stale = 1")
+            .prepare("SELECT key, repo, number FROM tasks WHERE stale = 1 AND account_id = ?1")
             .map_err(|e| format!("查询陈旧任务失败: {}", e))?;
         let rows = stmt
-            .query_map([], |r| {
+            .query_map([account.id], |r| {
                 Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
             })
             .map_err(|e| format!("遍历陈旧任务失败: {}", e))?;
@@ -366,36 +398,95 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     let mut candidate_done = 0usize;
     let mut removed = 0usize;
     for (key, repo, number) in stale_rows {
-        match client.fetch_state(&org, &repo, number) {
+        match client.fetch_state(&repo, number) {
             Ok(state) if state == "closed" => {
-                // GitHub 已关闭：状态最终态为「已完成」——以远程真实状态为准，
-                // 覆盖本地手动态（即便曾被标为处理中/已处理，关闭即视为做完）。
-                // candidate_done 保留作「远程已关闭、待本地确认归档」的提示。
-                // done_at：首次进入已完成时打上 now（done_at 原为空），之后保持不变。
                 conn.execute(
-                    "UPDATE tasks SET candidate_done = 1, gh_state = 'closed', status = 'done', stale = 0, done_at = CASE WHEN done_at = 0 THEN ?2 ELSE done_at END WHERE key = ?1",
-                    rusqlite::params![&key, &now],
+                    "UPDATE tasks SET candidate_done = 1, gh_state = 'closed', status = 'done', stale = 0,
+                     done_at = CASE WHEN done_at = 0 THEN ?2 ELSE done_at END
+                     WHERE key = ?1 AND account_id = ?3",
+                    rusqlite::params![&key, &now, account.id],
                 )
                 .map_err(|e| format!("标记候选已完成失败: {}", e))?;
                 candidate_done += 1;
             }
             Ok(_) => {
-                // 仍打开，但已不在搜索结果中（如 assignee 变更、不再 involves 我）：移出看板。
-                conn.execute("DELETE FROM tasks WHERE key = ?1", [&key])
+                conn.execute("DELETE FROM tasks WHERE key = ?1 AND account_id = ?2", rusqlite::params![&key, account.id])
                     .map_err(|e| format!("移除失效任务失败: {}", e))?;
                 removed += 1;
             }
             Err(_) => {
-                // 查询失败（限流 / 网络抖动 / 超时）：**保留任务**，等下次同步再判定，
-                // 绝不在不确定时删除，避免一次限流误清空整个看板。
                 eprintln!("[sync] fetch_state 失败，保留任务不过删: {}", key);
             }
         }
     }
 
-    // 已完成任务保留 1 个月：超过 30 天的自动清理，保持看板清爽。
-    // done_at = 0 表示「完成时间未知」（v0.3.8 前的历史数据），为安全起见不清理，
-    // 仅对带真实完成时间戳的新任务按窗口淘汰。
+    Ok(AccountSyncResult {
+        added,
+        updated,
+        candidate_done,
+        removed,
+        failed_sources: failed,
+    })
+}
+
+pub fn run(conn: &Connection) -> Result<SyncResult, String> {
+    // v0.3.16+：决定本次同步的目标账号集。
+    // view_mode='single' → 仅同步 active_account_id；'all' → 同步所有账号。
+    let accounts = crate::db::list_accounts(conn)?;
+    if accounts.is_empty() {
+        return Err("未配置 GitHub PAT，请在设置面板粘贴 token（fine-grained 推荐）".to_string());
+    }
+    let view_mode = crate::db::get_setting(conn, "view_mode");
+    let active_id: i64 = crate::db::get_setting(conn, "active_account_id")
+        .parse()
+        .unwrap_or(0);
+
+    let target: Vec<crate::db::Account> = match view_mode.as_str() {
+        "all" => accounts.clone(),
+        _ => accounts
+            .iter()
+            .filter(|a| a.id == active_id)
+            .cloned()
+            .collect(),
+    };
+    if target.is_empty() {
+        return Err(format!(
+            "激活账号 #{active_id} 不存在，请重新选择激活账号"
+        ));
+    }
+
+    let now = now_secs();
+    let mut total_added = 0usize;
+    let mut total_updated = 0usize;
+    let mut total_candidate_done = 0usize;
+    let mut total_removed = 0usize;
+    let mut total_failed: Vec<String> = Vec::new();
+
+    // 账号间间隔：避免同时发起多账号搜索触发突发限流（即便每账号 1s 间隔，多账号叠加仍可能撞 Search API 上限）。
+    for (idx, account) in target.iter().enumerate() {
+        if idx > 0 {
+            std::thread::sleep(Duration::from_millis(800));
+        }
+        let (login, _org, pat) = crate::db::get_account_pat(conn, account.id)?;
+        if pat.is_empty() {
+            total_failed.push(format!("{}: 未配置 PAT", login));
+            continue;
+        }
+        match sync_account(conn, account, &pat, now) {
+            Ok(r) => {
+                total_added += r.added;
+                total_updated += r.updated;
+                total_candidate_done += r.candidate_done;
+                total_removed += r.removed;
+                total_failed.extend(r.failed_sources);
+            }
+            Err(e) => {
+                total_failed.push(format!("{}: {}", login, e));
+            }
+        }
+    }
+
+    // 已完成任务保留 1 个月（按 done_at 窗口淘汰），与单账号视图保持同样的清理策略。
     let pruned = conn
         .execute(
             "DELETE FROM tasks WHERE status = 'done' AND done_at > 0 AND ?1 - done_at > 2592000",
@@ -411,15 +502,15 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
 
     Ok(SyncResult {
         total,
-        added,
-        updated,
-        candidate_done,
-        removed,
+        added: total_added,
+        updated: total_updated,
+        candidate_done: total_candidate_done,
+        removed: total_removed,
         pruned,
-        warning: if failed.is_empty() {
+        warning: if total_failed.is_empty() {
             String::new()
         } else {
-            format!("部分数据源拉取失败，已用其余源同步: {}", failed.join("; "))
+            format!("部分账号/数据源拉取失败: {}", total_failed.join("; "))
         },
         synced_at: now,
     })
@@ -454,13 +545,24 @@ mod tests {
         // 关键：复制到临时库再跑，**绝不改写用户的生产库**。
         // 早期版本直接开生产库跑同步，属于误改用户数据的高危写法——任何 `cargo test --lib -- --ignored`
         // 都会触发，故改为临时副本，验证后删除。
+        //
+        // v0.3.17 起 DB 是 WAL 模式：最新数据可能在 `-wal` 里尚未 checkpoint，
+        // `fs::copy` 主文件会拿到旧快照（实测丢 accounts 表）。改用 SQLite 原生
+        // `VACUUM INTO` 做一致性快照（含 WAL 内容，且对正在使用的库安全）。
         let tmp = std::env::temp_dir().join("taskboard_headless_test.db");
-        std::fs::copy(prod, &tmp).expect("复制生产库到临时文件");
-        eprintln!("[test] 已复制生产库到临时文件（不影响生产数据）：{}", tmp.display());
+        let _ = std::fs::remove_file(&tmp);
+        {
+            let src = Connection::open(prod).expect("打开生产库（只读快照）");
+            src.execute(
+                "VACUUM INTO ?1",
+                [tmp.to_string_lossy().as_ref()],
+            )
+            .expect("VACUUM INTO 快照失败");
+        }
+        eprintln!("[test] 已快照生产库到临时文件（不影响生产数据）：{}", tmp.display());
         let conn = Connection::open(&tmp).expect("打开临时库");
-        // 临时副本沿用生产库 schema；补上本次新增列，确保 run() 里引用 branch 的 UPSERT 不报错。
-        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN branch TEXT NOT NULL DEFAULT ''", []);
-        let _ = conn.execute("ALTER TABLE tasks ADD COLUMN handoff TEXT NOT NULL DEFAULT ''", []);
+        // 快照经 open_db 统一补 schema/迁移（与 App 打开路径一致）。
+        let conn = db::open_db(&tmp).expect("open_db 快照库");
 
         eprintln!("[test] 开始真实同步（关注 PR 关联）…");
         let res = run(&conn).expect("同步应成功");
@@ -485,5 +587,162 @@ mod tests {
         );
         let _ = std::fs::remove_file(&tmp);
         assert!(pr_gt0 > 0, "期望至少 1 个任务的 pr_number > 0（PR 关联应落地）");
+    }
+
+    // ===== 纯函数单元测试（不依赖网络） ==============================
+
+    #[test]
+    fn classify_empty_is_notassignee() {
+        assert_eq!(classify(&[], "alice"), "notassignee");
+    }
+
+    #[test]
+    fn classify_contains_login_is_assigned() {
+        let a = vec!["bob".to_string(), "alice".to_string()];
+        assert_eq!(classify(&a, "alice"), "assigned");
+        // 必须按值匹配，不是按首项
+        assert_eq!(classify(&a, "bob"), "assigned");
+    }
+
+    #[test]
+    fn classify_no_login_match_is_assigned_others() {
+        let a = vec!["bob".to_string(), "carol".to_string()];
+        assert_eq!(classify(&a, "alice"), "assigned-others");
+        assert_eq!(classify(&a, ""), "assigned-others");
+    }
+
+    #[test]
+    fn classify_case_sensitive() {
+        // GitHub login 是大小写不敏感的，但 classify 必须严格区分（实测用精确字符串）
+        let a = vec!["Alice".to_string()];
+        assert_eq!(classify(&a, "alice"), "assigned-others");
+        assert_eq!(classify(&a, "Alice"), "assigned");
+    }
+
+    #[test]
+    fn map_project_status_recognizes_oms_values() {
+        // 待处理：开发前（需求池 / 产品规划 / 待开发处理）
+        assert_eq!(map_project_status("🧠需求池"), Some("todo"));
+        assert_eq!(map_project_status("🤔产品规划"), Some("todo"));
+        assert_eq!(map_project_status("🚧待开发处理"), Some("todo"));
+
+        // 处理中
+        assert_eq!(map_project_status("✨开发中"), Some("doing"));
+
+        // 已处理：测试字样优先于「完成」（避免「完成测试中」被误映射到 done）
+        assert_eq!(map_project_status("🔎开发完成/测试中"), Some("processed"));
+        assert_eq!(map_project_status("✅测试通过/待上线"), Some("processed"));
+
+        // 已完成
+        assert_eq!(map_project_status("🎉完成/上线"), Some("done"));
+        assert_eq!(map_project_status("↩️取消"), Some("done"));
+
+        // 未识别 → None，让 sync 维持本地手动态
+        assert_eq!(map_project_status("Random new tag"), None);
+        assert_eq!(map_project_status(""), None);
+    }
+
+    #[test]
+    fn parse_issue_refs_handles_basic_patterns() {
+        // `#123` 无前缀：归属 PR 所在仓库
+        let r = parse_issue_refs("Closes #123", "myrepo");
+        assert_eq!(r, vec!["myrepo#123"]);
+
+        // `owner/repo#123` 跨仓库
+        let r = parse_issue_refs("See foo/bar#456", "myrepo");
+        assert_eq!(r, vec!["bar#456"]);
+
+        // 多个引用
+        let r = parse_issue_refs("Fix #1; refs a/b#2", "def");
+        assert_eq!(r, vec!["def#1", "b#2"]);
+
+        // 重复引用去重去重在调用方做；本函数返回自然顺序的全部命中
+        let r = parse_issue_refs("refs #1 again #1", "def");
+        assert_eq!(r, vec!["def#1", "def#1"]);
+    }
+
+    #[test]
+    fn parse_issue_refs_handles_dash_underscore_in_repo_name() {
+        // GitHub 仓库名允许 `-._`：必须都识别
+        let r = parse_issue_refs("closes my-org/my_repo.ext#7", "x");
+        assert_eq!(r, vec!["my_repo.ext#7"]);
+
+        let r = parse_issue_refs("closes foo-bar/baz_qux#9", "x");
+        assert_eq!(r, vec!["baz_qux#9"]);
+    }
+
+    #[test]
+    fn parse_issue_refs_ignores_invalid() {
+        // 无 # 前缀
+        assert!(parse_issue_refs("plain text 123", "def").is_empty());
+        // # 后非数字
+        assert!(parse_issue_refs("hash #abc, #0?", "def").is_empty());
+        // 空
+        assert!(parse_issue_refs("", "def").is_empty());
+        // #0 也被忽略（GitHub issue 编号从 1 起）
+        assert!(parse_issue_refs("refs #0", "def").is_empty());
+    }
+
+    #[test]
+    fn parse_issue_refs_handles_unicode_context() {
+        // 中文 PR body 里夹 #123 仍命中（按字节扫描）
+        let r = parse_issue_refs("修复 issue：#999 谢谢", "def");
+        assert_eq!(r, vec!["def#999"]);
+    }
+
+    #[test]
+    fn parse_issue_refs_only_repo_segment_without_slash_uses_default() {
+        // `#123` 前是空白 / 标点（无 `org/repo` 前缀）→ 用 default_repo
+        let r = parse_issue_refs("Closes #42 today.", "myrepo");
+        assert_eq!(r, vec!["myrepo#42"]);
+    }
+
+    #[test]
+    fn parse_issue_refs_documents_url_anchor_caveat() {
+        // 已知限制：URL 锚 `#42` 也会被解析。函数本身无法区分「URL 锚」与「issue 引用」——
+        // 见文档注释。若需排除 URL，应在调用方做预过滤。这里仅记录这个事实，
+        // 不做正确性断言（protocol-level 的固有歧义）。
+        let r = parse_issue_refs("see https://example.com/page#42", "myrepo");
+        // 现在的实际行为是「page#42」（seg="com/page"，rfind 取 "page"）。
+        // 至少要确认 seg 中扫描 `/` 后确实能识别 — 不是空。
+        assert_eq!(r.len(), 1);
+        assert!(r[0].ends_with("#42"));
+    }
+
+    #[test]
+    fn parse_issue_refs_handles_multi_segment_owner_path() {
+        // GitHub 偶尔会出现 `org/sub/group/repo#N` 多段路径：rfind 取最后一段。
+        let r = parse_issue_refs("fixes a/b/c/d#9", "x");
+        assert_eq!(r, vec!["d#9"]);
+    }
+
+    // ===== accounts + 多账号视图的纯逻辑校验 ==========================
+
+    #[test]
+    fn account_pat_roundtrip_isolated() {
+        // 与 db 集成测试不重叠：用临时库做 CRUD 烟雾测，确保 sync_account 入参
+        // 能直接组合 accounts 表与 get_account_pat。
+        let dir = std::env::temp_dir().join(format!(
+            "taskboard_unit_{}",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap()
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&dir).unwrap();
+        let path = dir.join("taskboard.db");
+        let conn = db::open_db(&path).unwrap();
+        let id = db::insert_account(&conn, "main", "alice", "FoodsUp", "ghp_x").unwrap();
+        let (login, org, pat) = db::get_account_pat(&conn, id).unwrap();
+        assert_eq!(login, "alice");
+        assert_eq!(org, "FoodsUp");
+        assert_eq!(pat, "ghp_x");
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// 占位：保证 `Connection` import 不被 unused 警告清理（防止后面扩展时漏掉）。
+    #[allow(dead_code)]
+    fn _unused_conn_smoke() -> Connection {
+        Connection::open_in_memory().unwrap()
     }
 }

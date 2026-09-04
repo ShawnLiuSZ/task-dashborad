@@ -10,9 +10,10 @@ use tauri::{
 };
 
 mod commands;
-mod db;
+pub mod db;
 mod github;
 mod mcp;
+mod oauth;
 mod sync;
 
 pub struct AppState {
@@ -198,6 +199,23 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::open_in_browser,
+            // v0.3.15：PAT 管理（保留兼容，单账号视图仍可用）。
+            commands::save_pat,
+            commands::test_pat,
+            commands::clear_pat,
+            // v0.3.16+：多账号管理。
+            commands::list_accounts,
+            commands::add_account,
+            commands::update_account,
+            commands::delete_account,
+            commands::test_account_pat,
+            commands::set_default_account,
+            commands::set_active_account,
+            commands::set_view_mode,
+            // v0.3.17+：GitHub OAuth Device Flow 登录。
+            commands::save_oauth_client_id,
+            commands::device_login_start,
+            commands::device_login_poll,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");

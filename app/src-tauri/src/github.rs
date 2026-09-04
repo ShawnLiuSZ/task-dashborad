@@ -38,6 +38,58 @@ pub struct RawTask {
     pub is_pr: bool,
 }
 
+impl RawTask {
+    /// 从 Search API 的原始 item 手动构造（**不要**直接 serde 反序列化）。
+    ///
+    /// 为什么手动解析：Search API 原始 item 与本结构差异很大——
+    /// - `assignees` 是 `[{login: "..."}]` 对象数组（直接反序列化会报
+    ///   "invalid type: map, expected a string"，v0.3.17 线上事故）
+    /// - 没有 `repo` 字段，须从 `repository_url`（`.../repos/{owner}/{repo}`）取尾段
+    /// - `url` 是 API URL，网页链接在 `html_url`
+    /// - `is_pr` 需由 `pull_request` 字段是否存在推断
+    /// 旧 gh+jq 管道由 JQ 投影完成这些转换，重写 reqwest 后必须等价实现。
+    pub fn from_item(v: &serde_json::Value) -> Result<RawTask, String> {
+        let get_str = |key: &str| -> Result<String, String> {
+            v.get(key)
+                .and_then(|x| x.as_str())
+                .map(String::from)
+                .ok_or_else(|| format!("search item 缺字段 {key}"))
+        };
+        let repo_url = get_str("repository_url")?;
+        let repo = repo_url
+            .rsplit('/')
+            .next()
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| format!("repository_url 异常: {repo_url}"))?
+            .to_string();
+        let assignees = v
+            .get("assignees")
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|u| {
+                        u.get("login").and_then(|l| l.as_str()).map(String::from)
+                    })
+                    .collect()
+            })
+            .unwrap_or_default();
+        Ok(RawTask {
+            number: v
+                .get("number")
+                .and_then(|x| x.as_i64())
+                .ok_or_else(|| "search item 缺 number".to_string())?,
+            title: get_str("title")?,
+            url: get_str("html_url")?,
+            state: get_str("state")?,
+            updated_at: get_str("updated_at")?,
+            repo,
+            assignees,
+            comments: v.get("comments").and_then(|x| x.as_u64()).unwrap_or(0),
+            is_pr: v.get("pull_request").is_some(),
+        })
+    }
+}
+
 /// 一个 PR 的精简信息，用于把「issue 对应的 PR」关联回看板卡片。
 #[derive(Debug, Deserialize, Clone)]
 pub struct RawPr {
@@ -51,6 +103,38 @@ pub struct RawPr {
     /// PR 所在分支（head.ref）；issue 没有分支字段，只能从关联 PR 反向取。
     #[serde(default)]
     pub head_ref: String,
+}
+
+impl RawPr {
+    /// 从 REST pulls 原始 item 手动构造（**不要**直接 serde 反序列化）。
+    ///
+    /// 与 RawTask 同理：`url` 是 API URL（网页链接在 `html_url`）；
+    /// 分支在嵌套字段 `head.ref`（直接反序列化 head_ref 会恒为空 → 分支列全丢）。
+    pub fn from_item(v: &serde_json::Value) -> Result<RawPr, String> {
+        Ok(RawPr {
+            repo: String::new(), // 调用方按当前仓库回填
+            number: v
+                .get("number")
+                .and_then(|x| x.as_i64())
+                .ok_or_else(|| "pulls item 缺 number".to_string())?,
+            url: v
+                .get("html_url")
+                .and_then(|x| x.as_str())
+                .map(String::from)
+                .ok_or_else(|| "pulls item 缺 html_url".to_string())?,
+            body: v
+                .get("body")
+                .and_then(|x| x.as_str())
+                .unwrap_or_default()
+                .to_string(),
+            head_ref: v
+                .get("head")
+                .and_then(|h| h.get("ref"))
+                .and_then(|r| r.as_str())
+                .unwrap_or_default()
+                .to_string(),
+        })
+    }
 }
 
 /// 仅在 Search API 路径作为分页上限 fallback 使用；当前实现改为请求 `per_page=100`
@@ -76,37 +160,44 @@ const SEARCH_PATH: &str = "search/issues";
 
 /// GitHub 客户端：一次构造长期复用（共享 reqwest 连接池）。
 ///
-/// 构造时会调一次 `user` API 探测并缓存 `login`——这是同步逻辑（authored / assignee /
-/// mentions / commenter）所必须。空 PAT 构造直接返回错误，由调用方提示用户去设置面板补 token。
+/// v0.3.16 起改为三参数 `new(pat, login, org)`：每个账号独立 login 与 org。
+/// 构造时**不探测**——`test_connection` 是显式校验入口（PAT 是否仍有效、
+/// 探测到的真实 login），由调用方按需触发。空 PAT 构造直接返回错误，
+/// 由调用方提示用户去设置面板补 token。
 pub struct GitHubClient {
     pat: String,
+    /// 调用方提供的 login（来自 accounts 表）；用于构造 search 查询的 `assignee:` 等限定符。
+    /// 注意：探测到的真实 login 见 [`Self::test_connection`]。
     login: String,
+    /// 调用方提供的 org（来自 accounts 表）；用于 `org:` 限定符。
+    org: String,
     http: reqwest::blocking::Client,
 }
 
 impl GitHubClient {
-    /// 构造客户端：探测 GitHub 账号，把 login 缓存到本对象。
+    /// 构造客户端。`login` / `org` 为空时仍允许（外部调用方可能用不到）。
     ///
-    /// 成功：返回可用客户端。
-    /// 失败：PAT 缺失 / 鉴权失败 / 网络错误——错误信息可定向给最终用户。
-    pub fn new(pat: String) -> Result<Self, String> {
+    /// 失败：PAT 为空。鉴权失败/网络错误不在构造时检查——交给 `test_connection` 显式触发，
+    /// 这样批量 sync 时构造 N 个客户端不会再触发 N 次探测（每次同步 1 次即可）。
+    pub fn new(pat: String, login: String, org: String) -> Result<Self, String> {
         let pat = pat.trim().to_string();
         if pat.is_empty() {
             return Err("GitHub PAT 为空，请在设置面板粘贴 token".to_string());
         }
         let http = reqwest::blocking::Client::builder()
-            .user_agent("taskboard/0.3.15")
+            .user_agent("taskboard/0.3.16")
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("构造 HTTP 客户端失败: {}", e))?;
-        let probe = Self { pat: pat.clone(), login: String::new(), http };
-        let login = probe.test_connection()?.login;
-        Ok(Self { pat, login, http: probe.http })
+        Ok(Self { pat, login, org, http })
     }
 
-    /// 探测当前 PAT 是否有效，并返回账号登录名。
-    /// 专供设置面板「测试连接」按钮调用；构造时也复用。
+    /// 探测当前 PAT 是否有效，返回账号登录名。
+    ///
+    /// 用途：
+    /// - 设置面板「测试连接」按钮（`test_pat` / `test_account_pat`）
+    /// - 添加账号时探测真实 login 以覆盖用户可能填错的 login（`add_account`）
     pub fn test_connection(&self) -> Result<TestConnectionResult, String> {
         let url = "https://api.github.com/user";
         let resp = self.get(url)?;
@@ -121,41 +212,37 @@ impl GitHubClient {
         Ok(TestConnectionResult { login })
     }
 
-    pub fn login(&self) -> &str {
-        &self.login
-    }
-
     /// 拉取「明确分配给我」的 open issue。权威来源，确保「分配给我」永不漏拉。
-    pub fn fetch_assigned(&self, org: &str) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} assignee:{} is:open is:issue", org, self.login))
+    pub fn fetch_assigned(&self) -> Result<Vec<RawTask>, String> {
+        self.search(&format!("org:{} assignee:{} is:open is:issue", self.org, self.login))
     }
 
     /// 拉取「我创建」的 open issue。
-    pub fn fetch_authored(&self, org: &str) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} author:{} is:open is:issue", org, self.login))
+    pub fn fetch_authored(&self) -> Result<Vec<RawTask>, String> {
+        self.search(&format!("org:{} author:{} is:open is:issue", self.org, self.login))
     }
 
     /// 拉取「@提到我」的 open issue。
-    pub fn fetch_mentioned(&self, org: &str) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} mentions:{} is:open is:issue", org, self.login))
+    pub fn fetch_mentioned(&self) -> Result<Vec<RawTask>, String> {
+        self.search(&format!("org:{} mentions:{} is:open is:issue", self.org, self.login))
     }
 
     /// 拉取「我评论过」的 open issue。
-    pub fn fetch_commented(&self, org: &str) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} commenter:{} is:open is:issue", org, self.login))
+    pub fn fetch_commented(&self) -> Result<Vec<RawTask>, String> {
+        self.search(&format!("org:{} commenter:{} is:open is:issue", self.org, self.login))
     }
 
     /// 拉取「与我相关」的全部 open issue。仅作补充源：GitHub 的 `involves:` 对
     /// assignee 覆盖偶发不可靠，故主覆盖由上面 4 个专属查询保证。
-    pub fn fetch_related(&self, org: &str) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} involves:{} is:open is:issue", org, self.login))
+    pub fn fetch_related(&self) -> Result<Vec<RawTask>, String> {
+        self.search(&format!("org:{} involves:{} is:open is:issue", self.org, self.login))
     }
 
     /// 拉取指定仓库的全部 PR（open + closed），用于把「PR 关联的 issue」反向关联回看板卡片。
     ///
     /// REST pulls 接口（核心配额 5000/h，无 Search API 的 30/min 严限）。
     /// 逐页 best-effort：单页失败仅记录日志跳过，不中断整个仓库列表。
-    pub fn fetch_prs(&self, org: &str, repos: &[String]) -> Result<Vec<RawPr>, String> {
+    pub fn fetch_prs(&self, repos: &[String]) -> Result<Vec<RawPr>, String> {
         let mut all: Vec<RawPr> = Vec::new();
         for repo in repos {
             if repo.is_empty() {
@@ -164,15 +251,24 @@ impl GitHubClient {
             for page in 1..=3 {
                 let url = format!(
                     "https://api.github.com/repos/{}/{}/pulls?state=all&per_page=100&page={}",
-                    org, repo, page
+                    self.org, repo, page
                 );
                 // 走核心配额，不计入 Search API 节流；且 PR 数据量可能很大（一次同步达数十 MB），
                 // 设较大超时避免大仓库拉取被中断。
                 let items: Vec<RawPr> = match self.get_with_timeout(&url, 60) {
-                    Ok(v) => match serde_json::from_value::<Vec<RawPr>>(v) {
-                        Ok(p) => p,
-                        Err(e) => {
-                            eprintln!("[sync] {}/PR 第 {} 页解析失败，跳过: {}", repo, page, e);
+                    Ok(v) => match v.as_array() {
+                        Some(arr) => arr
+                            .iter()
+                            .filter_map(|item| match RawPr::from_item(item) {
+                                Ok(p) => Some(p),
+                                Err(e) => {
+                                    eprintln!("[sync] {}/PR item 解析失败，跳过: {}", repo, e);
+                                    None
+                                }
+                            })
+                            .collect(),
+                        None => {
+                            eprintln!("[sync] {}/PR 第 {} 页响应非数组，跳过", repo, page);
                             Vec::new()
                         }
                     },
@@ -198,13 +294,12 @@ impl GitHubClient {
     /// 无评论返回 None。best-effort：失败返回 Err。
     pub fn fetch_comments(
         &self,
-        owner: &str,
         repo: &str,
         number: i64,
     ) -> Result<Option<String>, String> {
         let url = format!(
             "https://api.github.com/repos/{}/{}/issues/{}/comments?per_page=100",
-            owner, repo, number
+            self.org, repo, number
         );
         let v = self.get(&url)?;
         let arr = v.as_array().ok_or_else(|| "comments 返回非数组".to_string())?;
@@ -215,10 +310,10 @@ impl GitHubClient {
     }
 
     /// 查询单个 issue 的当前状态（open/closed），用于「陈旧任务」回路判定。
-    pub fn fetch_state(&self, owner: &str, repo: &str, number: i64) -> Result<String, String> {
+    pub fn fetch_state(&self, repo: &str, number: i64) -> Result<String, String> {
         let url = format!(
             "https://api.github.com/repos/{}/{}/issues/{}",
-            owner, repo, number
+            self.org, repo, number
         );
         let v = self.get(&url)?;
         v.get("state")
@@ -232,10 +327,11 @@ impl GitHubClient {
     ///
     /// 为什么需要：看板状态联动不能只看 issue 的 open/closed——团队用 Project 的
     /// Status 字段（如「🔎开发完成/测试中」）表达进度，Search API 不返回该字段。
-    pub fn fetch_project_status(&self, org: &str) -> Result<HashMap<String, String>, String> {
+    pub fn fetch_project_status(&self) -> Result<HashMap<String, String>, String> {
         // 1. 找到 OMS Kanban 项目的 id（按标题匹配）。
         let find_q = format!(
-            r#"query {{ organization(login:"{org}") {{ projectsV2(first:50) {{ nodes {{ id title }} }} }} }}"#
+            r#"query {{ organization(login:"{org}") {{ projectsV2(first:50) {{ nodes {{ id title }} }} }} }}"#,
+            org = self.org
         );
         let find = self.graphql(&find_q)?;
         let nodes = find["data"]["organization"]["projectsV2"]["nodes"]
@@ -406,7 +502,10 @@ impl GitHubClient {
             .get("items")
             .and_then(|i| i.as_array())
             .ok_or_else(|| "search 响应无 items 数组".to_string())?;
-        serde_json::from_value::<Vec<RawTask>>(serde_json::Value::Array(items.clone()))
+        items
+            .iter()
+            .map(RawTask::from_item)
+            .collect::<Result<Vec<RawTask>, String>>()
             .map_err(|e| format!("解析 search 返回失败: {}", e))
     }
 
@@ -511,7 +610,11 @@ mod tests {
     fn test_fetch_prs_isolated() {
         let pat = std::env::var("TASKBOARD_TEST_PAT")
             .expect("需设置 TASKBOARD_TEST_PAT=<GitHub PAT>");
-        let client = GitHubClient::new(pat).expect("客户端构造应成功");
+        let login = std::env::var("TASKBOARD_TEST_LOGIN")
+            .expect("需设置 TASKBOARD_TEST_LOGIN=<GitHub login>");
+        let org = std::env::var("TASKBOARD_TEST_ORG")
+            .unwrap_or_else(|_| "FoodsUp-Inc".to_string());
+        let client = GitHubClient::new(pat, login, org).expect("客户端构造应成功");
         let repos = vec![
             "fad-backend".to_string(),
             "pq-backend".to_string(),
@@ -520,7 +623,7 @@ mod tests {
         ];
         let t0 = std::time::Instant::now();
         let prs = client
-            .fetch_prs("FoodsUp-Inc", &repos)
+            .fetch_prs(&repos)
             .expect("fetch_prs 不应报错");
         eprintln!(
             "[test] 隔离 fetch_prs 拉到 {} 个 PR，耗时 {:.1}s",
@@ -539,5 +642,73 @@ mod tests {
     fn test_urlencode() {
         assert_eq!(urlencode("org:Foo assignee:bar"), "org%3AFoo%20assignee%3Abar");
         assert_eq!(urlencode("a-b_c.d~e"), "a-b_c.d~e");
+    }
+
+    /// 回归（v0.3.17 线上事故）：Search API 原始 item 必须手动解析。
+    /// 直接 serde 反序列化会因 assignees 是对象数组而报
+    /// "invalid type: map, expected a string"，5 源全灭、看板空转。
+    #[test]
+    fn raw_task_from_search_api_item() {
+        let item: serde_json::Value = serde_json::json!({
+            "id": 1,
+            "number": 1237,
+            "title": "[Bug] 手摘/下游Oas 免登录链接未校验",
+            "url": "https://api.github.com/repos/FoodsUp-Inc/pq-backend/issues/1237",
+            "html_url": "https://github.com/FoodsUp-Inc/pq-backend/issues/1237",
+            "state": "open",
+            "updated_at": "2026-09-04T10:00:00Z",
+            "comments": 3,
+            "repository_url": "https://api.github.com/repos/FoodsUp-Inc/pq-backend",
+            "assignees": [
+                {"login": "liushizhao2025", "id": 1},
+                {"login": "dingminggg", "id": 2}
+            ],
+            "labels": [{"name": "bug"}]
+        });
+        let t = RawTask::from_item(&item).expect("解析应成功");
+        assert_eq!(t.number, 1237);
+        assert_eq!(t.repo, "pq-backend");
+        // 网页链接，不是 API URL
+        assert_eq!(t.url, "https://github.com/FoodsUp-Inc/pq-backend/issues/1237");
+        assert_eq!(t.assignees, vec!["liushizhao2025", "dingminggg"]);
+        assert_eq!(t.comments, 3);
+        assert!(!t.is_pr);
+    }
+
+    #[test]
+    fn raw_task_detects_pr_and_defaults() {
+        let item: serde_json::Value = serde_json::json!({
+            "number": 99,
+            "title": "feat: x",
+            "html_url": "https://github.com/o/r/pull/99",
+            "state": "open",
+            "updated_at": "2026-09-04T10:00:00Z",
+            "repository_url": "https://api.github.com/repos/o/r",
+            "pull_request": {"merged_at": null}
+            // 无 assignees / comments —— default 应生效
+        });
+        let t = RawTask::from_item(&item).expect("解析应成功");
+        assert!(t.is_pr);
+        assert!(t.assignees.is_empty());
+        assert_eq!(t.comments, 0);
+    }
+
+    /// 回归：REST pulls 原始 item —— url 应取 html_url（网页链接），
+    /// head_ref 应取嵌套 head.ref（直接反序列化恒为空 → 分支信息全丢）。
+    #[test]
+    fn raw_pr_from_rest_pulls_item() {
+        let item: serde_json::Value = serde_json::json!({
+            "number": 1252,
+            "url": "https://api.github.com/repos/FoodsUp-Inc/pq-backend/pulls/1252",
+            "html_url": "https://github.com/FoodsUp-Inc/pq-backend/pull/1252",
+            "body": "Closes #1248",
+            "head": {"ref": "fix/deliver-assign-at", "sha": "abc"}
+        });
+        let pr = RawPr::from_item(&item).expect("解析应成功");
+        assert_eq!(pr.number, 1252);
+        assert_eq!(pr.url, "https://github.com/FoodsUp-Inc/pq-backend/pull/1252");
+        assert_eq!(pr.head_ref, "fix/deliver-assign-at");
+        assert_eq!(pr.body, "Closes #1248");
+        assert_eq!(pr.repo, "", "repo 由调用方回填");
     }
 }

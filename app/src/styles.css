@@ -165,11 +165,44 @@ body {
   overflow: hidden;
 }
 
+/* 列底色保持中性，状态色只落在列头胶囊上，与白色卡片不打架。 */
+.column-head {
+  margin: 8px 8px 2px;
+  padding: 5px 10px;
+  border-radius: 7px;
+}
+.column-todo .column-head {
+  background: #e6e7ea;
+}
+.column-doing .column-head {
+  background: #dbe9fc;
+}
+.column-processed .column-head {
+  background: #d8eee5;
+}
+.column-done .column-head {
+  background: #d2ebdf;
+}
+.column-todo .column-title {
+  color: var(--text-2);
+}
+.column-doing .column-title {
+  color: #0a5bd0;
+}
+.column-processed .column-title {
+  color: #157a58;
+}
+.column-done .column-title {
+  color: #0b6b4f;
+}
+.column-head .count {
+  margin-left: auto;
+}
+
 .column-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  padding: 10px 12px 8px;
   flex: 0 0 auto;
 }
 
@@ -294,7 +327,64 @@ body {
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 130px;
+}
+
+/* card-top 内状态徽章靠右对齐（「★我的」之后、推到行尾）。 */
+.card-top .gh-status {
   margin-left: auto;
+  flex: 0 0 auto;
+}
+
+/* ===== gh_status 五类配色（浅底深字，与看板列色语义一致） ===== */
+.gh-status-todo {
+  background: #e3edff;
+  color: #0a53c8;
+  border-color: #b9d2fb;
+}
+
+.gh-status-doing {
+  background: var(--amber-bg);
+  color: var(--amber-text);
+  border-color: #f0d9a8;
+}
+
+.gh-status-processed {
+  background: #efe7fb;
+  color: #6b34b8;
+  border-color: #d9c4f5;
+}
+
+.gh-status-done {
+  background: var(--teal-bg);
+  color: var(--teal-text);
+  border-color: #b3e0d2;
+}
+
+.gh-status-canceled {
+  background: #fde3e3;
+  color: #b42323;
+  border-color: #f3bcbc;
+}
+
+/* v0.3.17+：issue 状态独立行（标题下方），左对齐、不与标题行挤占。
+   （后调整：状态徽章回到 card-top「★我的」之后，本行样式保留仅供回退参考。） */
+.gh-status-row {
+  display: flex;
+  margin: -2px 0 4px;
+}
+
+.gh-status-row .gh-status {
+  margin-left: 0;
+}
+
+/* v0.3.17+：账号徽章独占卡片最顶行。 */
+.account-row-top {
+  display: flex;
+  margin-bottom: 4px;
+}
+
+.account-row-top .account-badge {
+  margin-left: 0;
 }
 
 .own {
@@ -315,12 +405,24 @@ body {
 }
 
 .mine-badge {
+  /* v0.3.17+：只保留红色五角星本体，去掉底色胶囊。 */
+  font-size: 12px;
+  line-height: 1;
+  padding: 0;
+  border-radius: 0;
+  background: none;
+  color: #e23b3b;
+}
+
+/* v0.3.16+：账号徽章（卡片顶部，按归属显示）。 */
+.account-badge {
   font-size: 10px;
-  font-weight: 600;
   padding: 1px 6px;
   border-radius: 4px;
-  background: #e23b3b;
-  color: #fff;
+  background: #efe7ff;
+  color: #6a4cbf;
+  font-weight: 500;
+  white-space: nowrap;
 }
 
 .mention-badge {
@@ -688,4 +790,85 @@ body {
   justify-content: flex-end;
   gap: 8px;
   margin-top: 4px;
+}
+
+/* ===== v0.3.17+ 账号管理 + Device Flow 登录 ======================== */
+
+.account-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.account-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 8px 10px;
+  border: 0.5px solid var(--border-strong);
+  border-radius: 8px;
+}
+
+.account-row-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+}
+
+.default-tag {
+  font-size: 10px;
+  color: #b58a00;
+  background: rgba(240, 180, 0, 0.15);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+
+.account-row-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+.account-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+/* Device Flow 登录面板 */
+.device-flow {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  padding: 12px 10px;
+  border: 0.5px dashed var(--border-strong);
+  border-radius: 8px;
+  margin-top: 4px;
+}
+
+.user-code {
+  font-family: "SF Mono", Menlo, monospace;
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 4px;
+  padding: 6px 18px;
+  margin-top: 6px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: #fff;
+  user-select: all;
+  cursor: copy;
+}
+
+/* 详情面板分支行：比 muted small 更大、等宽字体可读性好 */
+.branch-line {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--text);
+  font-family: "SF Mono", Menlo, monospace;
+  word-break: break-all;
 }
