@@ -1,0 +1,80 @@
+name: Release
+
+# 发布 GitHub Release（点击 Publish）时，自动在 GitHub 托管 runner 上
+# 构建 macOS / Windows / Linux 三端安装包，并作为附件上传到该 Release。
+#
+# 用法：
+#   1. 本地把 tauri.conf.json / Cargo.toml / package.json 的 version 统一（如 0.1.0）
+#   2. 打 tag（与 version 对齐）：git tag v0.1.0 && git push origin v0.1.0
+#   3. 在 GitHub 上基于该 tag 创建 Release 并 Publish → 触发本工作流
+#   4. 也可在 Actions 页面手动 Run workflow 兜底（此时用当前 ref 的 tag/分支名）
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: macos-latest
+            bundles: app,dmg
+          - platform: windows-latest
+            bundles: nsis
+          - platform: ubuntu-22.04
+            bundles: deb,appimage
+
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Linux dependencies
+        if: matrix.platform == 'ubuntu-22.04'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
+            libgtk-3-dev \
+            libappindicator3-dev \
+            libayatana-appindicator3-dev \
+            librsvg2-dev \
+            patchelf \
+            xdg-utils
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: app/package-lock.json
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Rust cache
+        uses: swatinem/rust-cache@v2
+        with:
+          workspaces: app/src-tauri -> target
+
+      - name: Install frontend dependencies
+        working-directory: app
+        run: npm ci
+
+      - name: Build with Tauri
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          projectPath: app
+          tagName: ${{ github.event.release.tag_name || github.ref_name }}
+          releaseName: "TaskBoard v__VERSION__"
+          releaseBody: "See the assets below to download and install TaskBoard."
+          releaseDraft: false
+          prerelease: false
+          args: --bundles ${{ matrix.bundles }}
