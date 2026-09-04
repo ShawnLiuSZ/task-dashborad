@@ -3,7 +3,7 @@ import { api, onSynced } from "./api";
 import Board from "./components/Board";
 import DetailPanel from "./components/DetailPanel";
 import SettingsPanel from "./components/SettingsPanel";
-import type { Settings, Task } from "./types";
+import type { Account, Settings as SettingsT, Task } from "./types";
 
 export function fmtTime(ts: number): string {
   if (!ts) return "从未";
@@ -14,7 +14,7 @@ export default function App() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
-  const [settings, setSettings] = useState<Settings | null>(null);
+  const [settings, setSettings] = useState<SettingsT | null>(null);
   const [showSettings, setShowSettings] = useState(false);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
@@ -22,14 +22,29 @@ export default function App() {
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
 
+  // 同步结果 banner 4 秒后自动消失（错误 banner 不受影响，由下次操作覆盖）。
+  useEffect(() => {
+    if (!lastResult) return;
+    const t = setTimeout(() => setLastResult(null), 4000);
+    return () => clearTimeout(t);
+  }, [lastResult]);
+
+  // v0.3.16+：根据当前 viewMode + activeAccountId 计算 listTasks 用的 accountId 参数。
+  // - 'single' → activeAccountId（单账号视图）
+  // - 'all'    → 0（聚合全部账号）
+  const accountFilter = useMemo<number | null>(() => {
+    if (!settings) return null;
+    return settings.viewMode === "all" ? 0 : settings.activeAccountId;
+  }, [settings]);
+
   const load = useCallback(async () => {
     try {
-      setTasks(await api.listTasks(ownership || undefined));
+      setTasks(await api.listTasks(ownership || undefined, accountFilter));
       setError(null);
     } catch (e) {
       setError(String(e));
     }
-  }, [ownership]);
+  }, [ownership, accountFilter]);
 
   const loadSettings = useCallback(async () => {
     try {
@@ -60,6 +75,15 @@ export default function App() {
     [tasks],
   );
 
+  // v0.3.16+：账号 id → Account 的映射，传给 Board 在卡片上显示账号徽章。
+  const accountMap = useMemo(() => {
+    const m = new Map<number, Account>();
+    for (const a of settings?.accounts ?? []) {
+      m.set(a.id, a);
+    }
+    return m;
+  }, [settings]);
+
   // 前端实时过滤：归属由后端 list_tasks 已筛；此处叠加 仓库 + 关键词（仓库/编号/标题）。
   const visible = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -88,15 +112,80 @@ export default function App() {
     }
   };
 
+  // v0.3.16+：切换激活账号（单账号视图）。
+  const handleSwitchAccount = async (id: number) => {
+    setError(null);
+    try {
+      await api.setActiveAccount(id);
+      await loadSettings();
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
+  // v0.3.16+：切换视图模式（single/all）。
+  const handleSwitchView = async (mode: "single" | "all") => {
+    setError(null);
+    try {
+      await api.setViewMode(mode);
+      await loadSettings();
+      await load();
+    } catch (e) {
+      setError(String(e));
+    }
+  };
+
   const selectedTask = tasks.find((t) => t.key === selected) ?? null;
+
+  // v0.3.16+：当前激活账号对象（用于顶栏显示）。
+  const activeAccount = useMemo(
+    () =>
+      settings?.accounts.find((a) => a.id === settings.activeAccountId) ??
+      null,
+    [settings],
+  );
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
           <span className="brand">TaskBoard</span>
+          {/* v0.3.16+：账号下拉 + 视图模式切换。 */}
+          <select
+            className="select"
+            value={settings?.viewMode ?? "single"}
+            onChange={(e) =>
+              void handleSwitchView(e.target.value as "single" | "all")
+            }
+            title="视图模式：单账号 / 全部账号"
+          >
+            <option value="single">单账号</option>
+            <option value="all">全部账号</option>
+          </select>
+          {settings?.viewMode === "single" && (
+            <select
+              className="select"
+              value={settings?.activeAccountId ?? 0}
+              onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
+              title="切换激活账号"
+            >
+              {(settings?.accounts ?? []).length === 0 && (
+                <option value={0}>（未配置）</option>
+              )}
+              {(settings?.accounts ?? []).map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label} (@{a.login})
+                </option>
+              ))}
+            </select>
+          )}
           <span className="muted">
-            {settings?.login ? `${settings.login} @ ${settings.org}` : "未登录"}
+            {activeAccount
+              ? `${activeAccount.login} @ ${activeAccount.org}`
+              : settings?.hasPat === false
+                ? "未配置 PAT"
+                : "未登录"}
             {" · "}
             共 {visible.length} 条
           </span>
@@ -166,7 +255,12 @@ export default function App() {
         </div>
       )}
 
-      <Board tasks={visible} selected={selected} onSelect={setSelected} />
+      <Board
+        tasks={visible}
+        selected={selected}
+        onSelect={setSelected}
+        accounts={accountMap}
+      />
 
       {selectedTask && (
         <>
@@ -191,8 +285,12 @@ export default function App() {
           onSaved={(s) => {
             setSettings(s);
             setShowSettings(false);
+            void load();
           }}
           onClose={() => setShowSettings(false)}
+          onAccountsChanged={() => {
+            void loadSettings();
+          }}
         />
       )}
     </div>

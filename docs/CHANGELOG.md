@@ -2,6 +2,21 @@
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
 
+- **v0.3.17（2026-09-04）— GitHub OAuth Device Flow 登录（替换 PAT 粘贴）**
+  - 需求：登录 GitHub 不再手动创建/粘贴 PAT，改为「点按钮 → 浏览器授权」的链接登录体验。
+  - 实现（RFC 8628 Device Flow）：新增 `src-tauri/src/oauth.rs`——① `start` 申请设备码（`POST /login/device/code`，scope=`repo read:org read:project`）；② `poll_once` 轮询 access_token（`authorization_pending`/`slow_down`/`expired_token`/`access_denied` 全覆盖；**后端不 sleep**，由前端按 interval 控制节奏）。**token 全程不回流前端**——轮询成功后由后端探测 login 并直接建/更账号。
+  - 首次使用前置（一次性）：GitHub → Settings → Developer settings → OAuth Apps → New OAuth App（Callback 随意），勾选 **Enable Device Flow**，复制 Client ID 填入设置面板（存 `meta.oauth_client_id`）。此后登录零配置。
+  - UI（SettingsPanel）：添加账号表单改为「账号名称 + 组织 + Client ID + 通过 GitHub 授权登录」；授权面板大字显示 user_code + 「重新打开授权页」（用 `verification_uri_complete` 预填免输码）+ 轮询状态；移除旧的「GitHub Personal Access Token（兼容字段）」整块 UI（后端 `save_pat`/`test_pat`/`clear_pat` 命令保留兼容）。
+  - 命令注册：`save_oauth_client_id` / `device_login_start` / `device_login_poll`；`Settings` 增 `oauthClientId` 字段；MCP SERVER_VERSION 同步 0.3.17。
+  - 同登录同 login 的账号自动复用（更新 PAT 而非重复建号）；首个账号自动设为默认并激活。
+  - 验证：`cargo check` 零警告；`cargo test` 16 lib + 15 integration 全过（新增 oauth 单测 2 条）；`npm run build` 通过。
+
+- **v0.3.16.1（2026-09-04）— 修复首次启动 SIGABRT + SQLite WAL 加固**
+  - 现象：v0.3.16 二进制首次启动 1.6s 内 SIGABRT，连续复现；crash log 栈顶 `tao::app_delegate::did_finish_launching + 272`（C 边界 `panic_cannot_unwind`），threadState.x22 = `sqlite3azCompileOpt`（SQLite 编译 SQL 时 panic）。
+  - 根因链：v0.3.16 启动事务（建 accounts 表 + 写默认设置 + ALTER ADD account_id）中途 abort → DELETE 模式残留 `.db-journal` 半提交 → bundled SQLite 0.31 在 macOS 26.6 上 forward-rollback 失败报 "disk I/O error" → 列迁移失败被 `let _ = ...` 静默吞掉 → DB 半新半旧 → 后续同步 panic。系统 sqlite3 3.51 能正常读写，证明文件本身健康，是 bundled SQLite 对残留 journal 的处理差异。
+  - DB 恢复（手工）：备份后移走 `-journal`，用系统 sqlite3 补上 `account_id` 列；78 条任务完好。
+  - 代码加固（`db.rs::open_db`）：① 强制 `PRAGMA journal_mode=WAL + synchronous=NORMAL + busy_timeout=5000`——WAL 模式下主 DB 文件始终一致可读，崩溃天然安全；② ALTER 失败不再吞，`eprintln!` 显式记录。
+  - 新增测试：`open_db_uses_wal_journal_mode` / `open_db_recovers_from_dirty_journal_file`（伪造残留 journal 验证 open_db 仍成功）。
 
 - **v0.3.1（2026-09-04）— 看板漏拉「分配给我」的任务**
   - 现象：看板随机缺失已分配给我的 issue（如 `fad-backend#1200` 及 #1066/#1071/#1072/#1100/#1138/#1139、`pq-backend#259`）。
@@ -161,5 +176,26 @@
       - `.board` 去掉 `overflow-x: auto; overflow-y: hidden;`，保留 `display:flex; flex-direction:row` + `min-height:0`（列容器，列宽仍固定 320px）。
       - `.topbar` / `.toolbar` 加 `position: sticky; left: 0; z-index: 5;`，整窗横向滚动时搜索/同步/设置始终可见。
       - 新增 `.btn.primary:hover:not(:disabled)`（`background:#0858d6; border-color:#0858d6; color:#fff`）——其特异性（0,4,1）高于 `.btn:hover:not(:disabled)`（0,3,1），覆盖后保持 accent 底色 + 白字，消除白底白字。
-  - 验证：`npm run build`（`tsc --noEmit && vite build`）通过；`npm run tauri build` 编译 + `.app` 产出成功；`.dmg` 因沙箱拦截 `/Volumes` 挂载失败，改用 `hdiutil create -srcfolder` 直读文件夹打包产出 `TaskBoard_0.1.0_aarch64.dmg`（4.2MB）。
+  - 验证：`npm run build`（`tsc --noEmit && vite build`）通过；`npm run tauri build` 编译 + `.app` 产出成功；`.dmg` 因沙箱拦截 `/Volumes` 挂载失败，改用 `hdiutil create -srcfolder` 直读文件夹打包产出 `TaskBoard_0.1.0_aarch64.dmg`(4.2MB)。
+
+- **v0.3.15（2026-09-04）— 完全替换 gh CLI 改用 GitHub PAT + visual polish（卡片配色 / 我的去背景）**
+  - 背景：用户反馈"使用 gh 命令获取有些不妥——切 gh 账户后直接获取不到任何 task，建议用 GitHub 登录获取任务信息"。沿袭当前会话里揭示的两个 gh 历史包袱，正式移除 gh 子进程路径；同期打磨卡片视觉。
+  - **架构变更（PAT 替换 gh）**：
+    1. 移除 `github.rs` 全部 gh 子进程代码（`resolve_gh` + `run_gh` / `run_gh_once_timed` / `current_login` / `run_gh_graphql` 共约 250 行），新增 `GitHubClient { pat, login, http }` 用 `reqwest` blocking + `rustls-tls`（无 native-tls 依赖，跨平台编译干净）直接调 GitHub REST/GraphQL。删掉 800ms 调用间隔与阶段 4s 冷却，改由客户端主动解析 `X-RateLimit-Remaining` / `X-RateLimit-Reset` / `Retry-After`（Search 调用间仍固定 1s 间隔，对应 30 req/min 上限）。
+    2. `db.rs` 默认设置加 `pat_token` + `last_sync_error` 两项；`meta` 是 kv 表，新字段首次启动时由 `DEFAULT_SETTINGS` 写入。
+    3. `sync.rs` 改造：用 `pat_token` 构造 `GitHubClient`（构造时自动 `GET /user` 探测 login 并缓存）；空 PAT 直接报错 "未配置"由 `lib.rs` 跳过本次同步并写入错误提示。`sync.rs` 不再触碰 `gh_path` / 探测 gh 路径 / 当前 gh 登录用户。
+    4. `commands.rs` 新增 `save_pat` / `test_pat` / `clear_pat` 三个 Tauri 命令（构造客户端时自动探测账号，写回 `meta.login` 便于前端展示）；`Settings` 加 `hasPat` / `lastSyncError` 两个字段。
+    5. `lib.rs`：`run_sync` 启动前检查 PAT，缺失则设置 `last_sync_error` 并跳过；同步成功清空该字段；前端 `App.tsx` 渲染 `lastSyncError` 为红色 banner。
+    6. `SettingsPanel.tsx`：PAT 输入框（password type）+ 当前账号展示 + 「保存 PAT / 测试连接 / 清除」三按钮。保存后清空 input 显示（防肩膀偷看 / 截屏）。`gh_path` 字段保留为只读兼容字段。
+  - **visual polish（同期合并发布）**：
+    1. **卡片右上 Project Status 配色**：新增 `gh-status-todo`（中性灰）/ `doing`（淡蓝）/ `processed`（淡紫）/ `done`（淡绿）/ `canceled`（淡红），替换原本统一的灰底配色。匹配逻辑按关键词（`TaskCard.tsx` 内维护，emoji 与文案变体兼容）。
+    2. **「我的」去掉粉色背景**：`.card.mine` 去 `background:#fff6f6`，仅保留左侧 4px 红色边框；避免与「@我」(橙)、「新评论」(绿)、「💬 新评论」等暖色标签混淆。
+  - **根因复盘（消解）**：
+    - 触发事件：CI 产物首次同步 5 个 Search 源全 422 → `meta` 的 `last_sync_error` 写明 "Validation Failed"。
+    - 直接原因：`gh auth switch` 切到 `ShawnLiuSZ`（GitHub 早期 **listed user** 类型），Search API 对 listed user 一律拒绝搜索（HTTP 422）。
+    - 深层原因：探测路径用了子进程 `gh` + 环境探测，无法与 `gh` 内部账号切换解耦；其它历史包袱还含管道缓冲 60s 死锁、`gh api graphql -F` 临时文件等。
+    - 直接修复：把 DB `meta.login` 改回 `liushizhao2025` 让看板瞬间恢复；本版从架构层根治。
+  - **改动文件**：`Cargo.toml`（+ `reqwest`）、`github.rs`（整体重写）、`db.rs`（+2 设置项）、`sync.rs`（+49 行、`fetch_*` 去 gh 参数）、`commands.rs`（+3 命令 + PAT 类型）、`lib.rs`（PAT 检查 + 新命令注册）、`mcp.rs`（版本号 0.3.11 → 0.3.15）、`SettingsPanel.tsx`（PAT 块 +3 按钮）、`TaskCard.tsx`（状态类名映射）、`App.tsx`（banner 改用 `lastSyncError`）、`styles.css`（5 色 + 去掉粉底）、`types.ts` / `api.ts`（PAT 类型与方法）。
+  - **不在本期范围**（已记 backlog）：fine-grained PAT 强化引导、系统 keyring 存储、OAuth、设备码流、多账号切换（→ v0.3.16 单独排期）。
+  - 验证：`cargo check` 0 errors / 2 warning（dead_code 已被 `#[allow(dead_code)]` 抑制为已知 pattern，注释说明）；`npm run build` 通过；`npm run tauri build` 产出新 `.app`。
 

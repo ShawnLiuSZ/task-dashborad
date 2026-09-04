@@ -10,9 +10,10 @@ use tauri::{
 };
 
 mod commands;
-mod db;
+pub mod db;
 mod github;
 mod mcp;
+mod oauth;
 mod sync;
 
 pub struct AppState {
@@ -69,6 +70,27 @@ fn refresh_tray(app: &AppHandle) {
 /// 执行一次同步，并刷新菜单栏角标、通知前端刷新列表。
 pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
     let state = app.state::<AppState>();
+    // v0.3.15：同步前先看 PAT 是否存在；不存在则跳过本次、记错误、清错误信息。
+    // 之所以跳过而非报错：避免自动同步在用户未配置时反复循环报错刷屏。
+    let pat_present = {
+        let conn = match state.db.lock() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[sync] db lock 失败: {}", e);
+                return None;
+            }
+        };
+        !db::get_setting(&conn, "pat_token").is_empty()
+    };
+    if !pat_present {
+        let conn = state.db.lock().ok()?;
+        let _ = db::set_setting(
+            &conn,
+            "last_sync_error",
+            "未配置 GitHub PAT，请在设置面板粘贴 token（fine-grained 推荐）",
+        );
+        return None;
+    }
     let result = {
         let conn = match state.db.lock() {
             Ok(c) => c,
@@ -78,10 +100,14 @@ pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
             }
         };
         match sync::run(&conn) {
-            Ok(r) => Some(r),
+            Ok(r) => {
+                // 成功同步：清掉旧错误信息，banner 自动消失。
+                let _ = db::set_setting(&conn, "last_sync_error", "");
+                Some(r)
+            }
             Err(e) => {
                 eprintln!("[sync] 同步失败: {}", e);
-                let _ = crate::db::set_setting(&conn, "last_sync_error", &e);
+                let _ = db::set_setting(&conn, "last_sync_error", &e);
                 None
             }
         }
@@ -173,6 +199,23 @@ pub fn run() {
             commands::get_settings,
             commands::save_settings,
             commands::open_in_browser,
+            // v0.3.15：PAT 管理（保留兼容，单账号视图仍可用）。
+            commands::save_pat,
+            commands::test_pat,
+            commands::clear_pat,
+            // v0.3.16+：多账号管理。
+            commands::list_accounts,
+            commands::add_account,
+            commands::update_account,
+            commands::delete_account,
+            commands::test_account_pat,
+            commands::set_default_account,
+            commands::set_active_account,
+            commands::set_view_mode,
+            // v0.3.17+：GitHub OAuth Device Flow 登录。
+            commands::save_oauth_client_id,
+            commands::device_login_start,
+            commands::device_login_poll,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");

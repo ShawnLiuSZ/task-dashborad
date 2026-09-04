@@ -1,6 +1,6 @@
 [package]
 name = "taskboard"
-version = "0.1.0"
+version = "0.3.17"
 description = "GitHub 个人任务看板"
 authors = ["liushizhao"]
 edition = "2021"
@@ -19,3 +19,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 dirs = "5"
+# v0.3.15：完全替换 gh CLI 路径，改为 PAT + reqwest 调用 GitHub REST/GraphQL。
+# rustls-tls 避免 native-tls 在 CI Linux runner 上的 OpenSSL 依赖，二进制跨平台编译干净；
+# blocking 模式不引 tokio runtime，便于手动控制限流节奏（GUI 已是 async 但同步客户端更易控并发）。
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls", "blocking"] }

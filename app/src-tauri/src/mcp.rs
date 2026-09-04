@@ -22,7 +22,7 @@ use rusqlite::Connection;
 use serde_json::{json, Map, Value};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
-const SERVER_VERSION: &str = "0.3.11";
+const SERVER_VERSION: &str = "0.3.17";
 
 /// 返回给 agent 的列（与 `commands.rs::Task` 顺序兼容的子集）。
 const SELECT_COLS: &str =

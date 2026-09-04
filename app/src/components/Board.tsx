@@ -1,13 +1,15 @@
-import { COLUMNS, type StatusKey, type Task } from "../types";
+import { COLUMNS, type Account, type StatusKey, type Task } from "../types";
 import TaskCard from "./TaskCard";
 
 interface Props {
   tasks: Task[];
   selected: string | null;
   onSelect: (key: string) => void;
+  /** v0.3.16+：账号列表（按 id），用于在卡片上显示账号徽章；空 Map 时不显示徽章。 */
+  accounts?: Map<number, Account>;
 }
 
-export default function Board({ tasks, selected, onSelect }: Props) {
+export default function Board({ tasks, selected, onSelect, accounts }: Props) {
   const byStatus = (s: StatusKey) => tasks.filter((t) => t.status === s);
 
   return (
@@ -15,7 +17,7 @@ export default function Board({ tasks, selected, onSelect }: Props) {
       {COLUMNS.map((col) => {
         const items = byStatus(col.key);
         return (
-          <section key={col.key} className="column">
+          <section key={col.key} className={`column column-${col.key}`}>
             <div className="column-head">
               <span className={`dot dot-${col.key}`} />
               <span className="column-title">{col.label}</span>
@@ -27,6 +29,7 @@ export default function Board({ tasks, selected, onSelect }: Props) {
                 <TaskCard
                   key={t.key}
                   task={t}
+                  accountLabel={accounts?.get(t.accountId)?.label}
                   active={t.key === selected}
                   onClick={() => onSelect(t.key)}
                 />
