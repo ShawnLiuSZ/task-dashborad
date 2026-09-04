@@ -69,6 +69,27 @@ fn refresh_tray(app: &AppHandle) {
 /// 执行一次同步，并刷新菜单栏角标、通知前端刷新列表。
 pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
     let state = app.state::<AppState>();
+    // v0.3.15：同步前先看 PAT 是否存在；不存在则跳过本次、记错误、清错误信息。
+    // 之所以跳过而非报错：避免自动同步在用户未配置时反复循环报错刷屏。
+    let pat_present = {
+        let conn = match state.db.lock() {
+            Ok(c) => c,
+            Err(e) => {
+                eprintln!("[sync] db lock 失败: {}", e);
+                return None;
+            }
+        };
+        !db::get_setting(&conn, "pat_token").is_empty()
+    };
+    if !pat_present {
+        let conn = state.db.lock().ok()?;
+        let _ = db::set_setting(
+            &conn,
+            "last_sync_error",
+            "未配置 GitHub PAT，请在设置面板粘贴 token（fine-grained 推荐）",
+        );
+        return None;
+    }
     let result = {
         let conn = match state.db.lock() {
             Ok(c) => c,
@@ -78,10 +99,14 @@ pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
             }
         };
         match sync::run(&conn) {
-            Ok(r) => Some(r),
+            Ok(r) => {
+                // 成功同步：清掉旧错误信息，banner 自动消失。
+                let _ = db::set_setting(&conn, "last_sync_error", "");
+                Some(r)
+            }
             Err(e) => {
                 eprintln!("[sync] 同步失败: {}", e);
-                let _ = crate::db::set_setting(&conn, "last_sync_error", &e);
+                let _ = db::set_setting(&conn, "last_sync_error", &e);
                 None
             }
         }

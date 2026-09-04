@@ -1,6 +1,5 @@
 use rusqlite::Connection;
 use std::collections::HashSet;
-use std::thread;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use crate::github;
@@ -103,24 +102,23 @@ fn parse_issue_refs(text: &str, default_repo: &str) -> Vec<String> {
 
 pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     let org = crate::db::get_setting(conn, "org");
-    let gh_cfg = crate::db::get_setting(conn, "gh_path");
-    let mut login = crate::db::get_setting(conn, "login");
-
-    let gh = github::resolve_gh(&gh_cfg)?;
-    if login.is_empty() {
-        login = github::current_login(&gh)?;
-        crate::db::set_setting(conn, "login", &login)?;
+    let pat = crate::db::get_setting(conn, "pat_token");
+    if pat.is_empty() {
+        // 不算失败（用户只是还没填 PAT），由 lib.rs 显示提示横幅并跳过本次同步。
+        return Err("未配置 GitHub PAT，请在设置面板粘贴 token（fine-grained 推荐）".to_string());
     }
+    let client = github::GitHubClient::new(pat)?;
+    let login = client.login().to_string();
 
     // 多源合并：以多个稳定查询（assignee/author/mentions/commenter）覆盖 `involves:`
     // 的偶发漏拉缺陷，确保任何「与我相关」的 issue 都不会缺失。按 key 去重。
     // best-effort：单源失败不中断整次同步，其余源照常并入（避免一次接口抖动让看板整体失效）。
     let sources: Vec<(&str, Result<Vec<github::RawTask>, String>)> = vec![
-        ("assignee", github::fetch_assigned(&gh, &org, &login)),
-        ("author", github::fetch_authored(&gh, &org, &login)),
-        ("mentions", github::fetch_mentioned(&gh, &org, &login)),
-        ("commenter", github::fetch_commented(&gh, &org, &login)),
-        ("involves", github::fetch_related(&gh, &org, &login)),
+        ("assignee", client.fetch_assigned(&org)),
+        ("author", client.fetch_authored(&org)),
+        ("mentions", client.fetch_mentioned(&org)),
+        ("commenter", client.fetch_commented(&org)),
+        ("involves", client.fetch_related(&org)),
     ];
     let mut lists: Vec<Vec<github::RawTask>> = Vec::new();
     let mut failed: Vec<String> = Vec::new();
@@ -159,13 +157,9 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     pr_repos.sort();
     pr_repos.dedup();
 
-    // 阶段冷却：issue 搜索（5 个 Search API 调用）刚密集打完，GitHub 二次（突发）限流的计数窗口
-    // 仍「温热」。先歇 4s 让计数衰减，再发起最关键的 PR 拉取——否则紧随其后的 PR 请求极易被
-    // 二次限流命中，gh 退避超时、整次关联清零。PR 关联是本版核心特性，必须优先保活。
-    thread::sleep(Duration::from_secs(4));
-
-    // 拉取上述仓库的全部 PR（best-effort），把「PR 正文引用的 issue」反向关联到看板卡片。
-    let (prs, pr_fetch_ok) = match github::fetch_prs(&gh, &org, &pr_repos) {
+    // PR 拉取走核心配额（5000/h）不需二次冷却；Search 调用间的 1s 间隔由
+    // GitHubClient.search 内部保证。
+    let (prs, pr_fetch_ok) = match client.fetch_prs(&org, &pr_repos) {
         Ok(p) => (p, true),
         Err(e) => {
             eprintln!("[sync] 拉取 PR 列表失败，跳过 PR 关联: {}", e);
@@ -187,13 +181,9 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     let _ = crate::db::set_setting(conn, "diag_pr_map_size", &pr_map.len().to_string());
     let _ = crate::db::set_setting(conn, "diag_pr_matched", &raw.iter().filter(|t| !t.is_pr && pr_map.contains_key(&format!("{}#{}", t.repo, t.number))).count().to_string());
 
-    // 阶段冷却：PR 拉取（多仓库多页 REST 调用）刚打完，同样让二次限流计数窗口衰减 4s，
-    // 再发起 GraphQL 项目状态查询，避免把限流压力顺延到项目状态与后续评论回源。
-    thread::sleep(Duration::from_secs(4));
-
     // 拉取 OMS Kanban 项目 Status 字段（best-effort）：失败时地图为空，
     // 看板对这些 issue 退化为"维持本地手动态"，不影响其余同步。
-    let project_status = match github::fetch_project_status(&gh, &org) {
+    let project_status = match client.fetch_project_status(&org) {
         Ok(m) => m,
         Err(e) => {
             eprintln!("[sync] 拉取项目状态失败，跳过状态联动: {}", e);
@@ -277,10 +267,10 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         // 取最新一条评论的永久链接；其余情况沿用缓存。
         let (comments_count, latest_comment_url): (i64, String) =
             if t.comments > existing_comments as u64 && comment_budget > 0 {
-                match github::fetch_comments(&gh, &org, &t.repo, t.number) {
+                match client.fetch_comments(&org, &t.repo, t.number) {
                     Ok(Some(url)) => {
                         comment_budget -= 1;
-                        thread::sleep(Duration::from_millis(80));
+                        std::thread::sleep(Duration::from_millis(80));
                         (t.comments as i64, url)
                     }
                     Ok(None) => {
@@ -376,7 +366,7 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     let mut candidate_done = 0usize;
     let mut removed = 0usize;
     for (key, repo, number) in stale_rows {
-        match github::fetch_state(&gh, &org, &repo, number) {
+        match client.fetch_state(&org, &repo, number) {
             Ok(state) if state == "closed" => {
                 // GitHub 已关闭：状态最终态为「已完成」——以远程真实状态为准，
                 // 覆盖本地手动态（即便曾被标为处理中/已处理，关闭即视为做完）。
@@ -495,36 +485,5 @@ mod tests {
         );
         let _ = std::fs::remove_file(&tmp);
         assert!(pr_gt0 > 0, "期望至少 1 个任务的 pr_number > 0（PR 关联应落地）");
-    }
-
-    /// 隔离验证：不跑任何 issue 搜索，单独测 `fetch_prs` 能否在测试环境里正常拉到 PR。
-    /// 目的：区分两类根因——
-    ///   (a) 环境/gh-子进程问题：孤立调用也超时 → 与搜索突发无关，是测试环境无法让 gh 联网；
-    ///   (b) 搜索突发触发 GitHub 二次限流：孤立调用很快返回，全量同步里却超时 → 需削减突发。
-    /// 默认忽略，需时 `cargo test --lib -- --ignored test_fetch_prs_isolated`。
-    #[test]
-    #[ignore]
-    fn test_fetch_prs_isolated() {
-        let gh = crate::github::resolve_gh("").expect("gh 应可用");
-        let org = "FoodsUp-Inc";
-        let repos = vec![
-            "fad-backend".to_string(),
-            "pq-backend".to_string(),
-            "flutter-driver".to_string(),
-            "foodsup-client".to_string(),
-        ];
-        let t0 = std::time::Instant::now();
-        let prs = crate::github::fetch_prs(&gh, org, &repos).expect("fetch_prs 不应报错");
-        eprintln!(
-            "[test] 隔离 fetch_prs 拉到 {} 个 PR，耗时 {:.1}s",
-            prs.len(),
-            t0.elapsed().as_secs_f64()
-        );
-        assert!(!prs.is_empty(), "隔离调用应至少拉到一个 PR");
-        for pr in prs.iter().take(3) {
-            assert!(pr.number > 0);
-            assert!(pr.url.contains("github.com"));
-            assert!(!pr.repo.is_empty(), "repo 应由调用方回填");
-        }
     }
 }

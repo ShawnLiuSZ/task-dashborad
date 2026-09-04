@@ -38,11 +38,17 @@ pub struct Task {
 #[serde(rename_all = "camelCase")]
 pub struct Settings {
     pub schedule_minutes: u64,
+    /// 历史字段：保留兼容（v0.3.15 起不再用于任何路径，仅显示）。
     pub gh_path: String,
     pub login: String,
     pub org: String,
     pub last_sync_at: i64,
     pub db_path: String,
+    /// v0.3.15+：是否已配置 PAT（不回显 token 本体）。
+    pub has_pat: bool,
+    /// v0.3.15+：最近一次同步的错误信息（如「未配置 PAT」「GitHub 401…」）。
+    /// 当作 banner 展示给用户，便于诊断；成功同步时清空。
+    pub last_sync_error: String,
 }
 
 fn rows_to_tasks(conn: &Connection, ownership: Option<&str>) -> Result<Vec<Task>, String> {
@@ -211,7 +217,77 @@ pub fn get_settings(app: AppHandle, state: State<'_, AppState>) -> Result<Settin
             .parse::<i64>()
             .unwrap_or(0),
         db_path: db_path.to_string_lossy().to_string(),
+        has_pat: !crate::db::get_setting(&conn, "pat_token").is_empty(),
+        last_sync_error: crate::db::get_setting(&conn, "last_sync_error"),
     })
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PatStatus {
+    pub login: String,
+    pub has_pat: bool,
+}
+
+/// 保存 GitHub Personal Access Token。空串视为清除。
+/// 成功保存后立刻探测账号（`test_connection`），把 login 写入 `meta.login`，
+/// 便于前端展示「当前账号」且不必泄漏 PAT 本体。
+#[allow(dead_code)] // 由 `lib.rs::invoke_handler` 反射注册使用，编译期无可达调用
+#[tauri::command]
+pub fn save_pat(
+    app: AppHandle,
+    state: State<'_, AppState>,
+    pat: String,
+) -> Result<PatStatus, String> {
+    let trimmed = pat.trim().to_string();
+    if trimmed.is_empty() {
+        // 用户点「清除」：清空 pat_token / login，并清掉 last_sync_error 中与 PAT 相关提示。
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        crate::db::set_setting(&conn, "pat_token", "")?;
+        crate::db::set_setting(&conn, "login", "")?;
+        crate::db::set_setting(&conn, "last_sync_error", "")?;
+        return Ok(PatStatus { login: String::new(), has_pat: false });
+    }
+    // 先在锁外构造客户端（避免构造时阻塞 db 锁）。
+    let client = crate::github::GitHubClient::new(trimmed.clone())
+        .map_err(|e| format!("PAT 验证失败: {}", e))?;
+    let login = client.login().to_string();
+    {
+        let conn = state.db.lock().map_err(|e| e.to_string())?;
+        crate::db::set_setting(&conn, "pat_token", &trimmed)?;
+        crate::db::set_setting(&conn, "login", &login)?;
+        // 写入新 PAT 后清掉旧的同步错误——这次刷新才会用到新 token。
+        crate::db::set_setting(&conn, "last_sync_error", "")?;
+    }
+    let _ = app;
+    Ok(PatStatus { login, has_pat: true })
+}
+
+/// 测试当前已保存的 PAT 是否有效，返回账号。
+/// 给设置面板「测试连接」按钮专用。
+#[allow(dead_code)]
+#[tauri::command]
+pub fn test_pat(state: State<'_, AppState>) -> Result<PatStatus, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let pat = crate::db::get_setting(&conn, "pat_token");
+    if pat.is_empty() {
+        return Err("未配置 PAT，请先在设置面板粘贴".to_string());
+    }
+    // 取锁外构造（reqwest 的网络 IO 与 db 锁解耦）。
+    drop(conn);
+    let client = crate::github::GitHubClient::new(pat)?;
+    Ok(PatStatus { login: client.login().to_string(), has_pat: true })
+}
+
+/// 清除 PAT（与 `save_pat` 传空串等价，但语义独立，便于前端显式调用）。
+#[allow(dead_code)]
+#[tauri::command]
+pub fn clear_pat(state: State<'_, AppState>) -> Result<PatStatus, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::set_setting(&conn, "pat_token", "")?;
+    crate::db::set_setting(&conn, "login", "")?;
+    crate::db::set_setting(&conn, "last_sync_error", "")?;
+    Ok(PatStatus { login: String::new(), has_pat: false })
 }
 
 #[tauri::command]

@@ -47,6 +47,11 @@ pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("gh_path", ""),
     ("login", ""),
     ("org", "FoodsUp-Inc"),
+    // v0.3.15：GitHub Personal Access Token。完全替换 gh CLI 路径，
+    // 由设置面板（SettingsPanel）粘入后写入；为空时同步跳过并提示。
+    ("pat_token", ""),
+    // v0.3.15：最近一次同步的错误信息（PAT 为空 / API 错误等），前端可读此字段显示横幅。
+    ("last_sync_error", ""),
 ];
 
 pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {

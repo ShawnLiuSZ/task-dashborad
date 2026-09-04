@@ -96,7 +96,7 @@ export default function App() {
         <div className="topbar-left">
           <span className="brand">TaskBoard</span>
           <span className="muted">
-            {settings?.login ? `${settings.login} @ ${settings.org}` : "未登录"}
+            {settings?.login ? `${settings.login} @ ${settings.org}` : settings?.hasPat === false ? "未配置 PAT" : "未登录"}
             {" · "}
             共 {visible.length} 条
           </span>

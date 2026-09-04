@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
-import type { Settings, SyncResult, Task } from "./types";
+import type { PatStatus, Settings, SyncResult, Task } from "./types";
 
 export const SYNCED_EVENT = "taskboard://synced";
 
@@ -19,6 +19,10 @@ export const api = {
   saveSettings: (scheduleMinutes: number, ghPath: string) =>
     invoke<Settings>("save_settings", { scheduleMinutes, ghPath }),
   openInBrowser: (url: string) => invoke<void>("open_in_browser", { url }),
+  // v0.3.15+：GitHub PAT 相关命令。
+  savePat: (pat: string) => invoke<PatStatus>("save_pat", { pat }),
+  testPat: () => invoke<PatStatus>("test_pat"),
+  clearPat: () => invoke<PatStatus>("clear_pat"),
 };
 
 export function onSynced(cb: (r: SyncResult) => void) {

@@ -110,6 +110,12 @@ body {
   border-bottom: 0.5px solid var(--border);
 }
 
+.banner.inline {
+  margin-top: 8px;
+  border-radius: 6px;
+  border: 0.5px solid var(--border);
+}
+
 .banner.ok {
   background: var(--teal-bg);
   color: var(--teal-text);
@@ -118,6 +124,23 @@ body {
 .banner.error {
   background: #fdecec;
   color: #a32d2d;
+}
+
+/* v0.3.15+：设置面板的 PAT 块专用样式。 */
+.pat-status {
+  margin: 6px 0;
+  font-size: 12px;
+}
+
+.pat-status .warn {
+  color: #a32d2d;
+  font-weight: 500;
+}
+
+.pat-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
 }
 
 .board {
@@ -217,9 +240,9 @@ body {
   border-left: 3px solid #e0a800;
 }
 
+/* v0.3.15：「我的」仅保留左侧红边框，去掉粉色背景，避免和「@我」「新评论」等暖色信息混淆。 */
 .card.mine {
-  border-left: 3px solid #e23b3b;
-  background: #fff6f6;
+  border-left: 4px solid #e23b3b;
 }
 
 .card.mine.active {

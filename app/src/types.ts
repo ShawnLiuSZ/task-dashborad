@@ -39,11 +39,22 @@ export interface SyncResult {
 
 export interface Settings {
   scheduleMinutes: number;
+  /** 历史字段：保留兼容（v0.3.15 起不再用于任何路径，仅显示）。 */
   ghPath: string;
   login: string;
   org: string;
   lastSyncAt: number;
   dbPath: string;
+  /** v0.3.15+：是否已配置 PAT（不回显 token 本体）。 */
+  hasPat: boolean;
+  /** v0.3.15+：最近一次同步的错误信息，用作 banner 展示。 */
+  lastSyncError: string;
+}
+
+/** v0.3.15+：`save_pat` / `test_pat` 命令的返回值。 */
+export interface PatStatus {
+  login: string;
+  hasPat: boolean;
 }
 
 export const COLUMNS: { key: StatusKey; label: string; hint: string }[] = [

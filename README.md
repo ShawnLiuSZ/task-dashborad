@@ -145,7 +145,8 @@ MCP Server 只提供工具；要让 Agent 在「开始 / 中断 / 说『生成�
 ## 文档
 
 - [`PRD.md`](./PRD.md) — 需求文档与决策演进（含已放弃的 Projects v2 方案、归属维度设计、API 避坑点）
-- [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 各版本的更新说明与修复记录（v0.3.1 → v0.3.14）
+- [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — 各版本的更新说明与修复记录（v0.3.1 → v0.3.15）
+- [`docs/v0.3.15-pat-auth.md`](./docs/v0.3.15-pat-auth.md) — v0.3.15 PAT 认证与 visual polish 设计文档（gh 替换、卡片配色、多账号规划）
 
 > 版本 v0.3.14 · 本地 Mac App，2026-09-04
 

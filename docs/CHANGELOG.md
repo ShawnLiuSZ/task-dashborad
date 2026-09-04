@@ -1,8 +1,6 @@
 # 版本更新记录（Changelog）
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
-
-
 - **v0.3.1（2026-09-04）— 看板漏拉「分配给我」的任务**
   - 现象：看板随机缺失已分配给我的 issue（如 `fad-backend#1200` 及 #1066/#1071/#1072/#1100/#1138/#1139、`pq-backend#259`）。
   - 根因：原同步仅用 `involves:<login>` 单一查询，而 GitHub 的 `involves:` 搜索对 assignee 覆盖不稳定，会偶发漏拉已分配 issue。
@@ -161,5 +159,26 @@
       - `.board` 去掉 `overflow-x: auto; overflow-y: hidden;`，保留 `display:flex; flex-direction:row` + `min-height:0`（列容器，列宽仍固定 320px）。
       - `.topbar` / `.toolbar` 加 `position: sticky; left: 0; z-index: 5;`，整窗横向滚动时搜索/同步/设置始终可见。
       - 新增 `.btn.primary:hover:not(:disabled)`（`background:#0858d6; border-color:#0858d6; color:#fff`）——其特异性（0,4,1）高于 `.btn:hover:not(:disabled)`（0,3,1），覆盖后保持 accent 底色 + 白字，消除白底白字。
-  - 验证：`npm run build`（`tsc --noEmit && vite build`）通过；`npm run tauri build` 编译 + `.app` 产出成功；`.dmg` 因沙箱拦截 `/Volumes` 挂载失败，改用 `hdiutil create -srcfolder` 直读文件夹打包产出 `TaskBoard_0.1.0_aarch64.dmg`（4.2MB）。
+  - 验证：`npm run build`（`tsc --noEmit && vite build`）通过；`npm run tauri build` 编译 + `.app` 产出成功；`.dmg` 因沙箱拦截 `/Volumes` 挂载失败，改用 `hdiutil create -srcfolder` 直读文件夹打包产出 `TaskBoard_0.1.0_aarch64.dmg`(4.2MB)。
+
+- **v0.3.15（2026-09-04）— 完全替换 gh CLI 改用 GitHub PAT + visual polish（卡片配色 / 我的去背景）**
+  - 背景：用户反馈"使用 gh 命令获取有些不妥——切 gh 账户后直接获取不到任何 task，建议用 GitHub 登录获取任务信息"。沿袭当前会话里揭示的两个 gh 历史包袱，正式移除 gh 子进程路径；同期打磨卡片视觉。
+  - **架构变更（PAT 替换 gh）**：
+    1. 移除 `github.rs` 全部 gh 子进程代码（`resolve_gh` + `run_gh` / `run_gh_once_timed` / `current_login` / `run_gh_graphql` 共约 250 行），新增 `GitHubClient { pat, login, http }` 用 `reqwest` blocking + `rustls-tls`（无 native-tls 依赖，跨平台编译干净）直接调 GitHub REST/GraphQL。删掉 800ms 调用间隔与阶段 4s 冷却，改由客户端主动解析 `X-RateLimit-Remaining` / `X-RateLimit-Reset` / `Retry-After`（Search 调用间仍固定 1s 间隔，对应 30 req/min 上限）。
+    2. `db.rs` 默认设置加 `pat_token` + `last_sync_error` 两项；`meta` 是 kv 表，新字段首次启动时由 `DEFAULT_SETTINGS` 写入。
+    3. `sync.rs` 改造：用 `pat_token` 构造 `GitHubClient`（构造时自动 `GET /user` 探测 login 并缓存）；空 PAT 直接报错 "未配置"由 `lib.rs` 跳过本次同步并写入错误提示。`sync.rs` 不再触碰 `gh_path` / 探测 gh 路径 / 当前 gh 登录用户。
+    4. `commands.rs` 新增 `save_pat` / `test_pat` / `clear_pat` 三个 Tauri 命令（构造客户端时自动探测账号，写回 `meta.login` 便于前端展示）；`Settings` 加 `hasPat` / `lastSyncError` 两个字段。
+    5. `lib.rs`：`run_sync` 启动前检查 PAT，缺失则设置 `last_sync_error` 并跳过；同步成功清空该字段；前端 `App.tsx` 渲染 `lastSyncError` 为红色 banner。
+    6. `SettingsPanel.tsx`：PAT 输入框（password type）+ 当前账号展示 + 「保存 PAT / 测试连接 / 清除」三按钮。保存后清空 input 显示（防肩膀偷看 / 截屏）。`gh_path` 字段保留为只读兼容字段。
+  - **visual polish（同期合并发布）**：
+    1. **卡片右上 Project Status 配色**：新增 `gh-status-todo`（中性灰）/ `doing`（淡蓝）/ `processed`（淡紫）/ `done`（淡绿）/ `canceled`（淡红），替换原本统一的灰底配色。匹配逻辑按关键词（`TaskCard.tsx` 内维护，emoji 与文案变体兼容）。
+    2. **「我的」去掉粉色背景**：`.card.mine` 去 `background:#fff6f6`，仅保留左侧 4px 红色边框；避免与「@我」(橙)、「新评论」(绿)、「💬 新评论」等暖色标签混淆。
+  - **根因复盘（消解）**：
+    - 触发事件：CI 产物首次同步 5 个 Search 源全 422 → `meta` 的 `last_sync_error` 写明 "Validation Failed"。
+    - 直接原因：`gh auth switch` 切到 `ShawnLiuSZ`（GitHub 早期 **listed user** 类型），Search API 对 listed user 一律拒绝搜索（HTTP 422）。
+    - 深层原因：探测路径用了子进程 `gh` + 环境探测，无法与 `gh` 内部账号切换解耦；其它历史包袱还含管道缓冲 60s 死锁、`gh api graphql -F` 临时文件等。
+    - 直接修复：把 DB `meta.login` 改回 `liushizhao2025` 让看板瞬间恢复；本版从架构层根治。
+  - **改动文件**：`Cargo.toml`（+ `reqwest`）、`github.rs`（整体重写）、`db.rs`（+2 设置项）、`sync.rs`（+49 行、`fetch_*` 去 gh 参数）、`commands.rs`（+3 命令 + PAT 类型）、`lib.rs`（PAT 检查 + 新命令注册）、`mcp.rs`（版本号 0.3.11 → 0.3.15）、`SettingsPanel.tsx`（PAT 块 +3 按钮）、`TaskCard.tsx`（状态类名映射）、`App.tsx`（banner 改用 `lastSyncError`）、`styles.css`（5 色 + 去掉粉底）、`types.ts` / `api.ts`（PAT 类型与方法）。
+  - **不在本期范围**（已记 backlog）：fine-grained PAT 强化引导、系统 keyring 存储、OAuth、设备码流、多账号切换（→ v0.3.16 单独排期）。
+  - 验证：`cargo check` 0 errors / 2 warning（dead_code 已被 `#[allow(dead_code)]` 抑制为已知 pattern，注释说明）；`npm run build` 通过；`npm run tauri build` 产出新 `.app`。
 

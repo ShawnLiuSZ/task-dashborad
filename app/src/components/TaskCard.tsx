@@ -36,11 +36,22 @@ export default function TaskCard({ task, active, onClick }: Props) {
             ★ 我的
           </span>
         )}
-        {task.ghStatus && (
-          <span className="gh-status" title="GitHub Project 状态">
-            {task.ghStatus}
-          </span>
-        )}
+        {task.ghStatus && (() => {
+          // v0.3.15+：gh-status-* 配色类按 Status 原文匹配，支持 emoji 与文案变体。
+          // 顺序敏感：先匹配「开发中」类以免被「开发完成/测试中」误判为 todo。
+          let cls = "gh-status gh-status-default";
+          const s = task.ghStatus;
+          if (s.includes("测试") || s.includes("待上线")) cls = "gh-status gh-status-processed";
+          else if (s.includes("开发中")) cls = "gh-status gh-status-doing";
+          else if (s.includes("待开发") || s.includes("需求") || s.includes("规划")) cls = "gh-status gh-status-todo";
+          else if (s.includes("取消")) cls = "gh-status gh-status-canceled";
+          else if (s.includes("完成") || s.includes("上线")) cls = "gh-status gh-status-done";
+          return (
+            <span className={cls} title="GitHub Project 状态">
+              {s}
+            </span>
+          );
+        })()}
       </div>
 
       <p className="card-title">{task.title}</p>
