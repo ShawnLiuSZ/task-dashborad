@@ -2,6 +2,8 @@
 
 每天自动汇聚 GitHub 上「分配给我 / 与我相关」的任务到**本地 Mac 应用**看板，状态随 AI 执行自动流转，并支持记录可恢复的中断会话（session id）。
 
+目前处于 ***开发者预览*** 阶段，正在快速迭代。未来将出现破坏兼容性的变更。
+
 > **最终形态（v0.3）**：已落地为**本地 Tauri 桌面应用**（`app/` 目录），数据存本地 SQLite，**不创建 GitHub Issue / Project，不写回 GitHub**。此前 PRD 讨论的「GitHub Projects v2 看板」方案因组织限制与个人偏好已放弃，演进记录见 [`PRD.md`](./PRD.md)。
 
 ## 应用：TaskBoard（Mac）
