@@ -1,5 +1,9 @@
 # GitHub 任务看板 · TaskBoard
 
+<p align="center">
+  <img src="social-preview.png" alt="TaskBoard — GitHub 任务看板" width="720" />
+</p>
+
 每天自动汇聚 GitHub 上「分配给我 / 与我相关」的任务到**本地 Mac 应用**看板，状态随 AI 执行自动流转，并支持记录可恢复的中断会话（session id）。
 
 目前处于 ***开发者预览*** 阶段，正在快速迭代。未来将出现破坏兼容性的变更。
