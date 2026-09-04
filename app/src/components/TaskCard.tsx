@@ -17,7 +17,9 @@ function openExternal(url: string, e: MouseEvent) {
 
 export default function TaskCard({ task, active, onClick }: Props) {
   const mine = task.ownership === "assigned";
-  const assigneeNames = task.assignees ? task.assignees.split(",").filter(Boolean) : [];
+  const assigneeNames = task.assignees
+    ? task.assignees.split(",").filter(Boolean)
+    : [];
 
   return (
     <article
@@ -43,32 +45,29 @@ export default function TaskCard({ task, active, onClick }: Props) {
 
       <p className="card-title">{task.title}</p>
 
-      {/* 时间上方一行：@我 / 分配人(无人认领) / 关联分支，统一收在此行，不再挤在标题行。 */}
+      {/* 时间上方一行：分配人 / @我 / 无人认领；分支不再展示在卡片（仅在详情中显示）。 */}
       <div className="meta-row">
-        {task.mentioned && (
-          <span className="mention-badge" title="评论区有人 @我">
-            📣 @我
-          </span>
-        )}
-        {assigneeNames.length > 0 ? (
+        {assigneeNames.length > 0 && (
           <span className="assignee-info">
             <span className="assignee-label">分配人</span>
             <span className="assignee-names">
-              {assigneeNames.map((a, i) => (
-                <span key={i} className="assignee-name">
+              {assigneeNames.map((a) => (
+                <span key={a} className="assignee-name">
                   @{a}
                 </span>
               ))}
             </span>
           </span>
-        ) : (
-          <span className="unassigned-tag" title="该 issue 暂无负责人">
-            无人认领
+        )}
+        {task.mentioned && (
+          <span className="mention-badge" title="评论区有人 @我">
+            📣 @我
           </span>
         )}
-        {task.branch && (
-          <span className="branch-tag" title="关联 PR 的分支">
-            🌿 {task.branch}
+        {/* 仅未认领的任务在此行显示"无人认领"标识。 */}
+        {task.ownership === "notassignee" && (
+          <span className="unassigned-tag" title="该 issue 暂无负责人">
+            无人认领
           </span>
         )}
       </div>

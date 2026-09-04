@@ -38,6 +38,8 @@ body {
   display: flex;
   flex-direction: column;
   height: 100%;
+  /* 横向滚动放在整个 app 层：列超出窗口宽度时整窗横向滚动。 */
+  overflow-x: auto;
 }
 
 .muted {
@@ -57,6 +59,10 @@ body {
   background: var(--surface);
   border-bottom: 0.5px solid var(--border);
   flex: 0 0 auto;
+  /* 整窗横向滚动时，顶栏固定在左侧，搜索/同步/设置始终可见。 */
+  position: sticky;
+  left: 0;
+  z-index: 5;
 }
 
 .topbar-left,
@@ -74,6 +80,10 @@ body {
   background: var(--surface);
   border-bottom: 0.5px solid var(--border);
   flex: 0 0 auto;
+  /* 同顶栏：横向滚动时固定在左侧。 */
+  position: sticky;
+  left: 0;
+  z-index: 5;
 }
 
 .toolbar .input {
@@ -112,14 +122,18 @@ body {
 
 .board {
   flex: 1 1 auto;
-  display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(248px, 1fr));
+  display: flex;
+  flex-direction: row;
   gap: 12px;
   padding: 12px 16px 16px;
-  overflow: hidden;
+  /* 横向滚动已上移到 .app；此处仅作列容器，列宽固定 320px。 */
+  min-height: 0;
 }
 
 .column {
+  /* 固定列宽 320px，对应卡片（含内边距）≈ 300px 可读宽度。 */
+  flex: 0 0 320px;
+  width: 320px;
   display: flex;
   flex-direction: column;
   min-height: 0;
@@ -186,6 +200,7 @@ body {
   border-radius: 8px;
   padding: 8px 10px;
   cursor: pointer;
+  /* 卡片宽度跟随列宽（320px），不再被压窄或拉宽。 */
   width: 100%;
   min-width: 0;
 }
@@ -544,6 +559,13 @@ body {
 .btn.primary {
   background: var(--accent);
   border-color: var(--accent);
+  color: #fff;
+}
+
+/* 修复 hover 白底白字：保持 accent 底色 + 白字，仅略微加深。 */
+.btn.primary:hover:not(:disabled) {
+  background: #0858d6;
+  border-color: #0858d6;
   color: #fff;
 }
 
