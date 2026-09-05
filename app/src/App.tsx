@@ -7,6 +7,7 @@ import SettingsPanel from "./components/SettingsPanel";
 import AboutPanel from "./components/AboutPanel";
 import AccountsPanel from "./components/AccountsPanel";
 import SyncLogsPanel from "./components/SyncLogsPanel";
+import NotesPanel from "./components/NotesPanel";
 import type { Account, BoardMode, ProjectStatus, Settings as SettingsT, Task } from "./types";
 
 export default function App() {
@@ -329,14 +330,19 @@ function BoardApp() {
         </div>
       )}
 
-      <Board
-        tasks={visible}
-        selected={selected}
-        onSelect={setSelected}
-        accounts={accountMap}
-        boardMode={settings?.boardMode ?? "project"}
-        projectStatuses={projectStatuses}
-      />
+      <div className="main-layout">
+        <NotesPanel />
+        <div className="board-wrap">
+          <Board
+            tasks={visible}
+            selected={selected}
+            onSelect={setSelected}
+            accounts={accountMap}
+            boardMode={settings?.boardMode ?? "project"}
+            projectStatuses={projectStatuses}
+          />
+        </div>
+      </div>
 
       {selectedTask && (
         <>

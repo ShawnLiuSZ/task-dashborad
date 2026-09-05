@@ -193,6 +193,15 @@ export interface SyncLog {
   createdAt: number;
 }
 
+/** v0.3.24+：记事本记录。 */
+export interface Note {
+  id: number;
+  content: string;
+  label: "low" | "medium" | "high" | "urgent";
+  createdAt: number;
+  updatedAt: number;
+}
+
 /**
  * 四态列定义。label / hint 走 i18n：status.{key} / hint.{key}
  * （Issue #7 起不再硬编码中文文案）。
