@@ -246,10 +246,10 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           {task.mentioned && ` · ${t("detail.mentionedSuffix")}`}
         </div>
         {task.branch && (
-          <div className="branch-line top-gap row">
+          <div className="branch-line top-gap">
             <span>{t("detail.branch", { branch: task.branch })}</span>
             <button
-              className="btn ghost small"
+              className="btn ghost small inline"
               onClick={() => copyToClipboard(task.branch, "branch")}
             >
               {copiedKey === "branch" ? t("btn.copied") : t("btn.copy")}

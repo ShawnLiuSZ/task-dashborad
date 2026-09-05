@@ -867,6 +867,12 @@ body {
   color: var(--text-2);
 }
 
+.btn.inline {
+  display: inline;
+  padding: 0 4px;
+  vertical-align: middle;
+}
+
 .input,
 .select {
   border: 0.5px solid var(--border-strong);
