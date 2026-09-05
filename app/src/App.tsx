@@ -196,7 +196,6 @@ function BoardApp() {
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <span className="brand">TaskBoard</span>
           {/* v0.3.16+：账号下拉 + 视图模式切换。 */}
           <select
             className="select"

@@ -1,0 +1,39 @@
+# Issue #48 — 顶部栏右侧按钮换行 & 移除左侧 TaskBoard 文字
+
+## 背景 / 动机
+
+对应 Issue：[#48](https://github.com/ShawnLiuSZ/task-dashborad/issues/48)
+
+顶部栏右侧的「关于 / 设置 / 账号 / 同步日志 / 立即同步」按钮组在窗口宽度不足时会发生换行，导致顶栏高度从单行增加到两行，布局不紧凑。同时顶栏最左侧固定的 "TaskBoard" 文字占用空间且视觉冗余。
+
+## 设计 / 方案
+
+改动集中在两处：
+
+1. **右侧按钮组禁止换行**：`.topbar-right` 元素显式声明 `flex-wrap: nowrap` 与 `white-space: nowrap`，确保按钮始终在同一行内。当窗口过窄导致一行放不下时，由整窗横向滚动承载超出的内容，而不是按钮折行撑高顶栏。顶栏已为 `position: sticky; left: 0`，横向滚动时操作区仍保持可见，符合既有交互。
+
+2. **移除左侧 "TaskBoard" 文字**：删除 `App.tsx` 中的 `<span className="brand">TaskBoard</span>` 及其对应样式 `.brand`，释放顶栏左侧空间。账号/视图切换 select 与账号状态信息保持不变。
+
+## 接口 / 行为变更
+
+- UI 行为：顶栏左侧不再展示 "TaskBoard" 品牌文字。
+- UI 行为：顶栏右侧按钮组不再换行，窗口过窄时触发整窗横向滚动。
+- 无 Tauri 命令、MCP 工具或数据结构变更。
+
+## 数据 / Schema 变更
+
+无。纯前端 UI 改动，不涉及 SQLite schema。
+
+## 测试 / 验收
+
+- [x] 窗口宽度缩窄时，「关于 / 设置 / 账号 / 同步日志 / 立即同步」始终在同一行，不折行。
+- [x] 顶栏左侧不再显示 "TaskBoard" 文字。
+- [x] 顶栏高度保持不变（约 42px），不出现两行高度。
+- [x] `npx tsc --noEmit` 通过。
+
+> 备注：顶部栏「同步日志」按钮当前仍为硬编码中文，未纳入本次改动。如需改为 i18n key 可作为独立小项处理。
+
+## 相关链接
+
+- Issue：[#48](https://github.com/ShawnLiuSZ/task-dashborad/issues/48)
+- 分支：`feature/issue-48-topbar-layout`

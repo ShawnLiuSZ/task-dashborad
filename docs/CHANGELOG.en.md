@@ -2,6 +2,12 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **To be released — Topbar layout optimization (#48)**
+
+  - The topbar-right button group ("About / Settings / Accounts / Sync Logs / Sync Now") no longer wraps when the window is too narrow (`flex-wrap: nowrap`); instead the whole window scrolls horizontally.
+  - Removed the "TaskBoard" brand text from the leftmost side of the topbar to free up space and reduce visual redundancy.
+  - KB doc: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md)
+
 - **v0.3.23 (2026-09-05) — Sync logs feature (#27)**
 
   - Requirement: after sync operations (scheduled/manual), users cannot view sync history and error details, making it difficult to troubleshoot issues like "partial account failures / 422 errors".
