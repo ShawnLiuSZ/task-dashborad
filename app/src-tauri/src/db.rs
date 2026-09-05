@@ -482,8 +482,8 @@ pub fn update_account(
     Ok(())
 }
 
-/// 删除账号；若该账号下还有任务，task.account_id 保留为旧值（不级联删除），
-/// 由 UI 在卡片上以「账号已删除」徽章标记。
+/// 删除账号并级联清理该账号下所有本地数据（原子事务）。
+/// 包括：tasks、projects、project_statuses、sync_logs、账号配置。
 /// 默认账号不可删除；须先把另一个账号设为默认。
 pub fn delete_account(conn: &Connection, id: i64) -> Result<(), String> {
     let is_default: i64 = conn
@@ -496,13 +496,45 @@ pub fn delete_account(conn: &Connection, id: i64) -> Result<(), String> {
     if is_default != 0 {
         return Err("默认账号不可删除，请先把另一个账号设为默认".to_string());
     }
-    let n = conn
-        .execute("DELETE FROM accounts WHERE id = ?1", [id])
-        .map_err(|e| format!("删除账号失败: {e}"))?;
-    if n == 0 {
+    // 检查账号是否存在
+    let exists: i64 = conn
+        .query_row("SELECT COUNT(*) FROM accounts WHERE id = ?1", [id], |r| r.get(0))
+        .unwrap_or(0);
+    if exists == 0 {
         return Err(format!("账号 #{id} 不存在"));
     }
-    Ok(())
+    // 在同一事务中原子删除所有关联数据
+    conn.execute_batch("BEGIN IMMEDIATE")
+        .map_err(|e| format!("开启事务失败: {e}"))?;
+    let result = (|| {
+        // 1. 删除 tasks
+        conn.execute("DELETE FROM tasks WHERE account_id = ?1", [id])
+            .map_err(|e| format!("删除 tasks 失败: {e}"))?;
+        // 2. 删除 projects
+        conn.execute("DELETE FROM projects WHERE account_id = ?1", [id])
+            .map_err(|e| format!("删除 projects 失败: {e}"))?;
+        // 3. 删除 project_statuses
+        conn.execute("DELETE FROM project_statuses WHERE account_id = ?1", [id])
+            .map_err(|e| format!("删除 project_statuses 失败: {e}"))?;
+        // 4. 删除 sync_logs
+        conn.execute("DELETE FROM sync_logs WHERE account_id = ?1", [id])
+            .map_err(|e| format!("删除 sync_logs 失败: {e}"))?;
+        // 5. 删除账号本身
+        conn.execute("DELETE FROM accounts WHERE id = ?1", [id])
+            .map_err(|e| format!("删除账号失败: {e}"))?;
+        Ok(())
+    })();
+    match result {
+        Ok(()) => {
+            conn.execute_batch("COMMIT")
+                .map_err(|e| format!("提交事务失败: {e}"))?;
+            Ok(())
+        }
+        Err(e) => {
+            let _ = conn.execute_batch("ROLLBACK");
+            Err(e)
+        }
+    }
 }
 
 /// 项目记录（与 projects 表一一对应；前端用）。
