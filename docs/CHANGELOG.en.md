@@ -2,16 +2,15 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
-- **To be released — Topbar layout optimization (#48)**
-
-  - The topbar-right button group ("About / Settings / Accounts / Sync Logs / Sync Now") no longer wraps when the window is too narrow (`flex-wrap: nowrap`); instead the whole window scrolls horizontally.
-  - Removed the "TaskBoard" brand text from the leftmost side of the topbar to free up space and reduce visual redundancy.
-  - Added inline SVG icons to the 5 topbar-right buttons; below 1100px only icons are shown; "Sync logs" now uses an i18n key.
-  - Settings / About / Accounts / Sync Logs modals are now unified under a single mutually-exclusive `activeModal` state, so only one modal shows at a time (fixes modal overlap after adding new buttons; root cause same as #26).
-  - Temporarily hidden the "All accounts" view mode; only single-account mode remains.
-  - The `.modal` container now clamps its height to the viewport (`max-height` + `overflow-y: auto`), fixing the title bar / bottom being cut off in short windows.
-  - The `.modal-mask` now sits at `z-index: 20` (above the topbar/toolbar at 5), so the modal top is no longer covered by the search bar in short windows.
-  - KB doc: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md)
+- **v0.3.24 (2026-09-05) — Notepad & account system & sync logs & topbar layout (incl. #6/#7/#27/#26/#31/#24/#25/#37/#38/#41/#33/#9/#48)**
+  - **Multi-account & account system (#25/#31/#33/#38)**: fixed second-account 422; added an accounts panel (add/remove/switch); deleting an account now cascades clean-up of all its local data; removed the org default switch.
+  - **Notepad panel (#9)**: a standalone notes column on the far left of the board.
+  - **Sync logs (#27)**: records the last week's sync activity in-app with auto-expiry; new "Sync Logs" modal.
+  - **Topbar layout optimization (#48)**: right button group no longer wraps; removed the leftmost "TaskBoard" text; 5 buttons got inline SVG icons (icons only below 1100px); the four modals unified into a mutually-exclusive `activeModal` (fixes overlap, root cause same as #26); modal height clamps to the viewport with internal scroll; mask z-index raised so the modal is no longer covered by the search bar.
+  - **Sync experience (#24)**: auto-refresh after a sync completes.
+  - **i18n (#7)**: Chinese/English UI switching; GitHub auth countdown format fix (#6).
+  - **MCP silencing (#41)**: hides db column-migration logs in MCP calls.
+  - **KB docs**: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md), [`docs/issue-27-sync-logs.md`](./issue-27-sync-logs.md), [`docs/issue-33-cascade-delete-account.md`](./issue-33-cascade-delete-account.md), [`docs/issue-41-mcp-silent-migration.md`](./issue-41-mcp-silent-migration.md), [`docs/issue-9-notepad-panel.md`](./issue-9-notepad-panel.md)
 
 - **v0.3.23 (2026-09-05) — Sync logs feature (#27)**
 

@@ -512,7 +512,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "taskboard", "version": "0.3.19"},
+                "serverInfo": {"name": "taskboard", "version": "0.3.24"},
             },
         }
 
