@@ -95,7 +95,7 @@
   "settings.deleteTitle": "删除该账号",
   "settings.addAccount": "+ GitHub 登录添加账号",
   "settings.labelPlaceholder": "账号名称（可留空，默认用 GitHub login）",
-  "settings.orgPlaceholder": "组织（org，如 FoodsUp-Inc）",
+  "settings.orgPlaceholder": "组织（可留空，授权后自动获取）",
   "settings.openingBrowser": "正在打开浏览器…",
   "settings.authorizeLogin": "通过 GitHub 授权登录",
   "settings.deviceFlowHint": "点击后自动打开浏览器，登录 GitHub 并点击 Authorize 即完成——无需注册、无需填任何 ID、无需粘贴 token。",

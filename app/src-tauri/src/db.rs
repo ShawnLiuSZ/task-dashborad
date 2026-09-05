@@ -96,7 +96,7 @@ pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
     ("schedule_minutes", "60"),
     ("gh_path", ""),
     ("login", ""),
-    ("org", "FoodsUp-Inc"),
+    ("org", ""),
     // v0.3.15：GitHub Personal Access Token。完全替换 gh CLI 路径，
     // 由设置面板（SettingsPanel）粘入后写入；为空时同步跳过并提示。
     // v0.3.16 起 PAT 迁到独立账号表，本字段仅作兼容兜底（详见 migrate_v0315_to_accounts）。
