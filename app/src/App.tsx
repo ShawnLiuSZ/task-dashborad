@@ -6,6 +6,7 @@ import DetailPanel from "./components/DetailPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import AboutPanel from "./components/AboutPanel";
 import AccountsPanel from "./components/AccountsPanel";
+import SyncLogsPanel from "./components/SyncLogsPanel";
 import type { Account, BoardMode, ProjectStatus, Settings as SettingsT, Task } from "./types";
 
 export default function App() {
@@ -24,6 +25,7 @@ function BoardApp() {
   const [settings, setSettings] = useState<SettingsT | null>(null);
   const [activeModal, setActiveModal] = useState<"settings" | "about" | null>(null);
   const [showAccounts, setShowAccounts] = useState(false);
+  const [showSyncLogs, setShowSyncLogs] = useState(false);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
   const [repo, setRepo] = useState("");
@@ -249,6 +251,9 @@ function BoardApp() {
           <button className="btn" onClick={() => setShowAccounts(true)}>
             {t("btn.accounts")}
           </button>
+          <button className="btn" onClick={() => setShowSyncLogs(true)}>
+            同步日志
+          </button>
           <button className="btn primary" onClick={doSync} disabled={syncing}>
             {syncing ? t("btn.syncing") : t("btn.syncNow")}
           </button>
@@ -375,6 +380,12 @@ function BoardApp() {
       {activeModal === "about" && (
         <AboutPanel
           onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {showSyncLogs && (
+        <SyncLogsPanel
+          onClose={() => setShowSyncLogs(false)}
         />
       )}
     </div>

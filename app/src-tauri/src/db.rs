@@ -90,6 +90,25 @@ CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
 );
+
+CREATE TABLE IF NOT EXISTS sync_logs (
+  id             INTEGER PRIMARY KEY AUTOINCREMENT,
+  account_id     INTEGER NOT NULL,
+  trigger_type   TEXT NOT NULL DEFAULT 'auto',
+  started_at     INTEGER NOT NULL,
+  finished_at    INTEGER NOT NULL DEFAULT 0,
+  status         TEXT NOT NULL DEFAULT 'running',
+  added          INTEGER NOT NULL DEFAULT 0,
+  updated        INTEGER NOT NULL DEFAULT 0,
+  removed        INTEGER NOT NULL DEFAULT 0,
+  candidate_done INTEGER NOT NULL DEFAULT 0,
+  pruned         INTEGER NOT NULL DEFAULT 0,
+  failed_sources TEXT NOT NULL DEFAULT '',
+  error_message  TEXT NOT NULL DEFAULT '',
+  created_at     INTEGER NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_account ON sync_logs(account_id);
+CREATE INDEX IF NOT EXISTS idx_sync_logs_created ON sync_logs(created_at);
 "#;
 
 pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
@@ -882,4 +901,122 @@ fn fallback_state_from_gh_state(gh_state: &str) -> String {
     } else {
         "todo".to_string() // open 默认待处理，实际同步时会被 Project Status 覆盖
     }
+}
+
+// ============================================================================
+// v0.3.23+：同步日志管理
+// ============================================================================
+
+/// 同步日志记录（与 sync_logs 表一一对应；前端用）。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SyncLog {
+    pub id: i64,
+    pub account_id: i64,
+    pub trigger_type: String,
+    pub started_at: i64,
+    pub finished_at: i64,
+    pub status: String,
+    pub added: i64,
+    pub updated: i64,
+    pub removed: i64,
+    pub candidate_done: i64,
+    pub pruned: i64,
+    pub failed_sources: String,
+    pub error_message: String,
+    pub created_at: i64,
+}
+
+/// 插入一条同步日志（开始同步时调用）；返回新日志 id。
+pub fn insert_sync_log(
+    conn: &Connection,
+    account_id: i64,
+    trigger_type: &str,
+    started_at: i64,
+) -> Result<i64, String> {
+    conn.execute(
+        "INSERT INTO sync_logs (account_id, trigger_type, started_at, created_at)
+         VALUES (?1, ?2, ?3, ?3)",
+        rusqlite::params![account_id, trigger_type, started_at],
+    )
+    .map_err(|e| format!("插入同步日志失败: {e}"))?;
+    let id: i64 = conn
+        .query_row("SELECT last_insert_rowid()", [], |r| r.get(0))
+        .unwrap_or(0);
+    Ok(id)
+}
+
+/// 更新同步日志（同步完成时调用）。
+pub fn update_sync_log(
+    conn: &Connection,
+    id: i64,
+    finished_at: i64,
+    status: &str,
+    added: i64,
+    updated: i64,
+    removed: i64,
+    candidate_done: i64,
+    pruned: i64,
+    failed_sources: &str,
+    error_message: &str,
+) -> Result<(), String> {
+    conn.execute(
+        "UPDATE sync_logs SET
+           finished_at = ?2, status = ?3, added = ?4, updated = ?5,
+           removed = ?6, candidate_done = ?7, pruned = ?8,
+           failed_sources = ?9, error_message = ?10
+         WHERE id = ?1",
+        rusqlite::params![id, finished_at, status, added, updated, removed, candidate_done, pruned, failed_sources, error_message],
+    )
+    .map_err(|e| format!("更新同步日志失败: {e}"))?;
+    Ok(())
+}
+
+/// 列出同步日志（最近 N 条），按 created_at 降序。
+pub fn list_sync_logs(conn: &Connection, limit: i64) -> Result<Vec<SyncLog>, String> {
+    let mut stmt = conn
+        .prepare(
+            "SELECT id, account_id, trigger_type, started_at, finished_at, status,
+                    added, updated, removed, candidate_done, pruned,
+                    failed_sources, error_message, created_at
+             FROM sync_logs ORDER BY created_at DESC LIMIT ?1",
+        )
+        .map_err(|e| format!("查询同步日志失败: {e}"))?;
+    let rows = stmt
+        .query_map([limit], |r| {
+            Ok(SyncLog {
+                id: r.get(0)?,
+                account_id: r.get(1)?,
+                trigger_type: r.get(2)?,
+                started_at: r.get(3)?,
+                finished_at: r.get(4)?,
+                status: r.get(5)?,
+                added: r.get(6)?,
+                updated: r.get(7)?,
+                removed: r.get(8)?,
+                candidate_done: r.get(9)?,
+                pruned: r.get(10)?,
+                failed_sources: r.get(11)?,
+                error_message: r.get(12)?,
+                created_at: r.get(13)?,
+            })
+        })
+        .map_err(|e| format!("遍历同步日志失败: {e}"))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("读取同步日志行失败: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// 清理超过 7 天的同步日志（保留策略）。
+pub fn prune_sync_logs(conn: &Connection, now: i64) -> Result<usize, String> {
+    let seven_days_secs = 7 * 24 * 60 * 60;
+    let n = conn
+        .execute(
+            "DELETE FROM sync_logs WHERE ?1 - created_at > ?2",
+            [now, seven_days_secs],
+        )
+        .map_err(|e| format!("清理过期同步日志失败: {e}"))?;
+    Ok(n)
 }

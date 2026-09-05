@@ -2,6 +2,34 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.23 (2026-09-05) — Sync logs feature (#27)**
+
+  - Requirement: after sync operations (scheduled/manual), users cannot view sync history and error details, making it difficult to troubleshoot issues like "partial account failures / 422 errors".
+
+  - Changes:
+
+    - `db.rs`: added `sync_logs` table (account_id, trigger_type, started_at, finished_at, status, added/updated/removed/candidate_done/pruned counts, failed_sources, error_message), auto-creates table and indexes.
+
+    - `sync.rs`: inserts log at sync start for each target account, updates log status and statistics on completion; auto-cleans logs older than 7 days after each sync.
+
+    - `commands.rs`: added `list_sync_logs` (list sync logs) and `prune_sync_logs` (clean expired logs) Tauri commands.
+
+    - `lib.rs`: registered new commands.
+
+    - `types.ts`: added `SyncLog` type.
+
+    - `api.ts`: added `listSyncLogs` and `pruneSyncLogs` API calls.
+
+    - `SyncLogsPanel.tsx`: new sync logs panel component, displays recent 100 sync records (time, trigger type, duration, status, added/updated/removed counts, error info), supports manual cleanup of expired logs.
+
+    - `App.tsx`: added "Sync logs" button in the top bar.
+
+    - `styles.css`: added sync logs panel styles.
+
+  - Verification: `cargo check` passes; `npx tsc --noEmit` passes; `npm run tauri build` compiles successfully.
+
+  - Knowledge base doc: [`docs/issue-27-sync-logs.md`](./issue-27-sync-logs.md)
+
 - **v0.3.19 (2026-09-05) — About page + check for updates (#21)**
 
   - Background: the app had no in-app version display or update entry, so users could not tell the current version or trigger an upgrade.

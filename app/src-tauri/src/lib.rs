@@ -232,6 +232,9 @@ pub fn run() {
             commands::diagnose_project_status,
             commands::list_projects,
             commands::list_project_statuses,
+            // v0.3.23+：同步日志管理。
+            commands::list_sync_logs,
+            commands::prune_sync_logs,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");
