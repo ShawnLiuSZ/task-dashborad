@@ -9,6 +9,7 @@
   - Added inline SVG icons to the 5 topbar-right buttons; below 1100px only icons are shown; "Sync logs" now uses an i18n key.
   - Settings / About / Accounts / Sync Logs modals are now unified under a single mutually-exclusive `activeModal` state, so only one modal shows at a time (fixes modal overlap after adding new buttons; root cause same as #26).
   - Temporarily hidden the "All accounts" view mode; only single-account mode remains.
+  - The `.modal` container now clamps its height to the viewport (`max-height` + `overflow-y: auto`), fixing the title bar / bottom being cut off in short windows.
   - KB doc: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md)
 
 - **v0.3.23 (2026-09-05) — Sync logs feature (#27)**

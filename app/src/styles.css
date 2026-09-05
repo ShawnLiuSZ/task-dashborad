@@ -930,6 +930,9 @@ body {
   background: var(--surface);
   border-radius: 12px;
   padding: 18px 20px;
+  /* 弹窗适配窗口高度：超高时内部出现 Y 轴滚动，避免标题/底部被截。 */
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
 }
 
 .modal-title {
