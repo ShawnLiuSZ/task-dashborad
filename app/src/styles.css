@@ -734,7 +734,7 @@ body {
   top: 46px;
   right: 0;
   bottom: 0;
-  width: 380px;
+  width: 460px;
   background: var(--surface);
   border-left: 0.5px solid var(--border);
   padding: 14px 16px;
@@ -865,6 +865,12 @@ body {
 .btn.ghost {
   border-color: transparent;
   color: var(--text-2);
+}
+
+.btn.inline {
+  display: inline;
+  padding: 0 4px;
+  vertical-align: middle;
 }
 
 .input,

@@ -60,7 +60,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
   const [sessionInput, setSessionInput] = useState(task.sessionId ?? "");
   const [agent, setAgent] = useState(task.sessionAgent ?? "claude-code");
   const [err, setErr] = useState<string | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copiedKey, setCopiedKey] = useState<string | null>(null);
   const [handoff, setHandoff] = useState(task.handoff ?? "");
 
   const run = async (fn: () => Promise<void>) => {
@@ -76,11 +76,10 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
     }
   };
 
-  const copySession = async () => {
-    if (!task.sessionId) return;
-    await navigator.clipboard.writeText(task.sessionId);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 1500);
+  const copyToClipboard = async (text: string, key: string) => {
+    await navigator.clipboard.writeText(text);
+    setCopiedKey(key);
+    setTimeout(() => setCopiedKey(null), 1500);
   };
 
   return (
@@ -102,7 +101,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           {t(`ownership.${task.ownership}`)}
         </span>
         {task.candidateDone && <span className="candidate-tag">{t("detail.closedPending")}</span>}
-        <span className="muted small">{t("detail.updatedAt", { time: task.updatedAt ?? "—" })}</span>
+        <span className="muted small">{t("detail.updatedAt", { time: fmtTime(task.updatedAt, lang) })}</span>
       </div>
 
       <section className="detail-block">
@@ -155,8 +154,12 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           >
             {t("btn.clear")}
           </button>
-          <button className="btn" disabled={!task.sessionId} onClick={copySession}>
-            {copied ? t("btn.copied") : t("btn.copy")}
+          <button
+            className="btn"
+            disabled={!task.sessionId}
+            onClick={() => task.sessionId && copyToClipboard(task.sessionId, "session")}
+          >
+            {copiedKey === "session" ? t("btn.copied") : t("btn.copy")}
           </button>
         </div>
         {task.sessionId && (
@@ -205,10 +208,24 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           <button className="btn" onClick={() => void api.openInBrowser(task.url)}>
             {t("detail.openInBrowser")}
           </button>
+          <button
+            className="btn ghost"
+            onClick={() => copyToClipboard(task.url, "url")}
+          >
+            {copiedKey === "url" ? t("btn.copied") : t("btn.copy")}
+          </button>
           {task.prNumber > 0 && task.prUrl && (
-            <button className="btn" onClick={() => void api.openInBrowser(task.prUrl)}>
-              PR #{task.prNumber}
-            </button>
+            <>
+              <button className="btn" onClick={() => void api.openInBrowser(task.prUrl)}>
+                PR #{task.prNumber}
+              </button>
+              <button
+                className="btn ghost"
+                onClick={() => copyToClipboard(task.prUrl, "pr")}
+              >
+                {copiedKey === "pr" ? t("btn.copied") : t("btn.copy")}
+              </button>
+            </>
           )}
           {task.latestCommentUrl && (
             <button className="btn" onClick={() => void api.openInBrowser(task.latestCommentUrl)}>
@@ -230,7 +247,13 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
         </div>
         {task.branch && (
           <div className="branch-line top-gap">
-            {t("detail.branch", { branch: task.branch })}
+            <span>{t("detail.branch", { branch: task.branch })}</span>
+            <button
+              className="btn ghost small inline"
+              onClick={() => copyToClipboard(task.branch, "branch")}
+            >
+              {copiedKey === "branch" ? t("btn.copied") : t("btn.copy")}
+            </button>
           </div>
         )}
         <div className="muted small top-gap">{t("detail.localOnly")}</div>
