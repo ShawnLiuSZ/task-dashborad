@@ -5,7 +5,7 @@
 > **v0.3 核心变更（方案转向）**：
 > 1. **组织不允许创建 Project**（实测确认）→ 放弃 Projects v2 方案
 > 2. **明确不在 GitHub 上创建任何 Issue / Project** → GitHub 侧改为**纯只读**，仅调 Search API
-> 3. **看板落地为 macOS 原生应用**（Tauri，菜单栏常驻 + 完整窗口），状态与 session 全部存本地 SQLite
+> 3. **看板落地为跨平台桌面应用**（Tauri，支持 Windows / macOS / Linux；配置支持菜单栏/托盘常驻 + 完整窗口），状态与 session 全部存本地 SQLite
 > 4. 支持**定时自动同步**与**手动同步**
 >
 > **v0.2 变更（已并入）**：
@@ -192,19 +192,19 @@
   - 已 `closed` → 标记「候选已完成」
   - 仍 `open` 但不再与「我」相关 → 移出看板
 
-### 5.3 看板载体：macOS 原生应用（决策点 D3 已定）
+### 5.3 看板载体：跨平台桌面应用（决策点 D3 已定，后续扩展为 W/M/L）
 
 | 方案 | 结论 |
 |---|---|
 | A. GitHub Projects v2 | ❌ 组织不允许成员创建 Project（实测确认），放弃 |
-| B. **macOS 原生应用（Tauri 2）** | ✅ **选定** |
+| B. **跨平台桌面应用（Tauri 2，W / M / L）** | ✅ **选定** |
 | C. 本地 HTML 看板 | 被 B 取代（B 自带窗口与菜单栏，无需自建渲染与分发） |
 | D. 飞书多维表格 | 暂不引入 |
 
 | 维度 | 设计 |
 |---|---|
 | 技术栈 | Tauri 2（Rust 后端 + React / TypeScript 前端） |
-| 形态 | **菜单栏常驻**（角标显示「处理中」数量）+ 点击展开看板窗口 |
+| 形态 | **菜单栏 / 托盘常驻**（角标显示「处理中」数量）+ 点击展开看板窗口 |
 | 存储 | SQLite，`~/Library/Application Support/com.liushizhao.taskboard/taskboard.db` |
 | 取数 | 调用本机 `gh` CLI（复用已登录凭据），**纯只读** |
 | 定时同步 | 后台线程，间隔可配（默认 60 分钟，最小 5 分钟） |
@@ -335,7 +335,7 @@ get_task_status → 读取 Session 字段
 ## 7. 架构与数据流
 
 ```text
-┌──────────────────── macOS app（Tauri）────────────────────┐
+┌────────────────── 跨平台桌面 app（Tauri，W / M / L）──────────────────┐
 │                                                            │
 │  菜单栏（角标：处理中 N）──点击──▶ 看板窗口                    │
 │                                        │                   │
@@ -395,7 +395,7 @@ get_task_status → 读取 Session 字段
 
 ## 10. MVP 范围（第一版）
 
-1. macOS 菜单栏 app：四列看板，数据存本地 SQLite，GitHub 侧零写操作
+1. 跨平台桌面 app（Windows / macOS / Linux）：四列看板，数据存本地 SQLite，GitHub 侧零写操作
 2. **定时同步**（默认 60 分钟，可配）+ **手动同步**（菜单栏 / 窗口按钮）
 3. 拉取 `org:FoodsUp-Inc involves:<login> is:open is:issue`，幂等落库（唯一键 `repo#number`）
 4. 归属判定：无 assignee → **`notassignee`**（13 条）
