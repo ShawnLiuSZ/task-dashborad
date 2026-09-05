@@ -931,3 +931,45 @@ pub fn prune_sync_logs(state: State<'_, AppState>) -> Result<usize, String> {
     let now = crate::sync::now_secs();
     crate::db::prune_sync_logs(&conn, now)
 }
+
+// ============================================================================
+// v0.3.24+：记事本管理
+// ============================================================================
+
+/// 列出所有记事。
+#[tauri::command]
+pub fn list_notes(state: State<'_, AppState>) -> Result<Vec<crate::db::Note>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::list_notes(&conn)
+}
+
+/// 新增记事。
+#[tauri::command]
+pub fn add_note(state: State<'_, AppState>, content: String, label: Option<String>) -> Result<crate::db::Note, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = crate::sync::now_secs();
+    let label = label.unwrap_or_else(|| "low".to_string());
+    crate::db::add_note(&conn, &content, &label, now)
+}
+
+/// 更新记事内容。
+#[tauri::command]
+pub fn update_note(state: State<'_, AppState>, id: i64, content: String) -> Result<crate::db::Note, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = crate::sync::now_secs();
+    crate::db::update_note(&conn, id, &content, now)
+}
+
+/// 更新记事标签。
+#[tauri::command]
+pub fn update_note_label(state: State<'_, AppState>, id: i64, label: String) -> Result<crate::db::Note, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::update_note_label(&conn, id, &label)
+}
+
+/// 删除记事。
+#[tauri::command]
+pub fn delete_note(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::delete_note(&conn, id)
+}

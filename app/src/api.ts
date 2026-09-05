@@ -8,6 +8,7 @@ import type {
   DeviceLoginStart,
   LabelMapping,
   LabelMappingInput,
+  Note,
   PatStatus,
   Project,
   ProjectStatus,
@@ -97,6 +98,15 @@ export const api = {
   listSyncLogs: (limit?: number) =>
     invoke<SyncLog[]>("list_sync_logs", { limit: limit ?? 50 }),
   pruneSyncLogs: () => invoke<number>("prune_sync_logs"),
+  // v0.3.24+：记事本管理。
+  listNotes: () => invoke<Note[]>("list_notes"),
+  addNote: (content: string, label?: string) =>
+    invoke<Note>("add_note", { content, label: label ?? null }),
+  updateNote: (id: number, content: string) =>
+    invoke<Note>("update_note", { id, content }),
+  updateNoteLabel: (id: number, label: string) =>
+    invoke<Note>("update_note_label", { id, label }),
+  deleteNote: (id: number) => invoke<void>("delete_note", { id }),
 };
 
 export function onSynced(cb: (r: SyncResult) => void) {

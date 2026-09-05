@@ -117,6 +117,14 @@ CREATE TABLE IF NOT EXISTS sync_logs (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_logs_account ON sync_logs(account_id);
 CREATE INDEX IF NOT EXISTS idx_sync_logs_created ON sync_logs(created_at);
+
+CREATE TABLE IF NOT EXISTS notes (
+  id         INTEGER PRIMARY KEY AUTOINCREMENT,
+  content    TEXT NOT NULL,
+  label      TEXT NOT NULL DEFAULT 'low',
+  created_at INTEGER NOT NULL,
+  updated_at INTEGER NOT NULL
+);
 "#;
 
 pub const DEFAULT_SETTINGS: &[(&str, &str)] = &[
@@ -230,6 +238,17 @@ pub fn open_db(path: &Path) -> Result<Connection, String> {
     if let Err(e) = conn.execute("ALTER TABLE label_mappings ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0", []) {
         if verbose_enabled() {
             eprintln!("[db] label_mappings order_index 列迁移跳过: {}", e);
+        }
+    }
+    // v0.3.24：notes 表补 label 列。早期无标签版本的库里 notes 只有 4 列，
+    // 而 `CREATE TABLE IF NOT EXISTS` 不会给已存在的表补列，导致 list_notes
+    // （SELECT ... label）与 add_note（INSERT ... label）全部失败、前端静默无反应。
+    if let Err(e) = conn.execute(
+        "ALTER TABLE notes ADD COLUMN label TEXT NOT NULL DEFAULT 'low'",
+        [],
+    ) {
+        if verbose_enabled() {
+            eprintln!("[db] notes label 列迁移跳过（已存在）: {}", e);
         }
     }
     // v0.3.15 → v0.3.16 自动迁移：把 v0.3.15 写在 meta.pat_token 的单账号 PAT
@@ -1069,4 +1088,124 @@ pub fn prune_sync_logs(conn: &Connection, now: i64) -> Result<usize, String> {
         )
         .map_err(|e| format!("清理过期同步日志失败: {e}"))?;
     Ok(n)
+}
+
+// ── Notes ──────────────────────────────────────────────────────────────────
+
+/// 记事本记录。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct Note {
+    pub id: i64,
+    pub content: String,
+    pub label: String,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+/// 列出所有记事，按 created_at 降序（最新的在前）。
+pub fn list_notes(conn: &Connection) -> Result<Vec<Note>, String> {
+    let mut stmt = conn
+        .prepare("SELECT id, content, label, created_at, updated_at FROM notes ORDER BY created_at DESC")
+        .map_err(|e| format!("查询记事失败: {e}"))?;
+    let rows = stmt
+        .query_map([], |r| {
+            Ok(Note {
+                id: r.get(0)?,
+                content: r.get(1)?,
+                label: r.get(2)?,
+                created_at: r.get(3)?,
+                updated_at: r.get(4)?,
+            })
+        })
+        .map_err(|e| format!("遍历记事失败: {e}"))?;
+    let mut out = Vec::new();
+    for r in rows {
+        out.push(r.map_err(|e| format!("读取记事行失败: {e}"))?);
+    }
+    Ok(out)
+}
+
+/// 新增记事，返回新记录。
+pub fn add_note(conn: &Connection, content: &str, label: &str, now: i64) -> Result<Note, String> {
+    conn.execute(
+        "INSERT INTO notes (content, label, created_at, updated_at) VALUES (?1, ?2, ?3, ?3)",
+        rusqlite::params![content, label, now],
+    )
+    .map_err(|e| format!("插入记事失败: {e}"))?;
+    let id: i64 = conn
+        .query_row("SELECT last_insert_rowid()", [], |r| r.get(0))
+        .unwrap_or(0);
+    Ok(Note {
+        id,
+        content: content.to_string(),
+        label: label.to_string(),
+        created_at: now,
+        updated_at: now,
+    })
+}
+
+/// 更新记事内容，返回更新后的记录。
+pub fn update_note(conn: &Connection, id: i64, content: &str, now: i64) -> Result<Note, String> {
+    let n = conn
+        .execute(
+            "UPDATE notes SET content = ?1, updated_at = ?2 WHERE id = ?3",
+            rusqlite::params![content, now, id],
+        )
+        .map_err(|e| format!("更新记事失败: {e}"))?;
+    if n == 0 {
+        return Err(format!("记事 #{id} 不存在"));
+    }
+    conn.query_row(
+        "SELECT id, content, label, created_at, updated_at FROM notes WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(Note {
+                id: r.get(0)?,
+                content: r.get(1)?,
+                label: r.get(2)?,
+                created_at: r.get(3)?,
+                updated_at: r.get(4)?,
+            })
+        },
+    )
+    .map_err(|e| format!("读取更新后记事失败: {e}"))
+}
+
+/// 更新记事标签，返回更新后的记录。
+pub fn update_note_label(conn: &Connection, id: i64, label: &str) -> Result<Note, String> {
+    let n = conn
+        .execute(
+            "UPDATE notes SET label = ?1 WHERE id = ?2",
+            rusqlite::params![label, id],
+        )
+        .map_err(|e| format!("更新记事标签失败: {e}"))?;
+    if n == 0 {
+        return Err(format!("记事 #{id} 不存在"));
+    }
+    conn.query_row(
+        "SELECT id, content, label, created_at, updated_at FROM notes WHERE id = ?1",
+        [id],
+        |r| {
+            Ok(Note {
+                id: r.get(0)?,
+                content: r.get(1)?,
+                label: r.get(2)?,
+                created_at: r.get(3)?,
+                updated_at: r.get(4)?,
+            })
+        },
+    )
+    .map_err(|e| format!("读取更新后记事失败: {e}"))
+}
+
+/// 删除记事。
+pub fn delete_note(conn: &Connection, id: i64) -> Result<(), String> {
+    let n = conn
+        .execute("DELETE FROM notes WHERE id = ?1", [id])
+        .map_err(|e| format!("删除记事失败: {e}"))?;
+    if n == 0 {
+        return Err(format!("记事 #{id} 不存在"));
+    }
+    Ok(())
 }
