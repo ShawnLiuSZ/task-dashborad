@@ -70,9 +70,10 @@ fn refresh_tray(app: &AppHandle) {
 /// 执行一次同步，并刷新菜单栏角标、通知前端刷新列表。
 pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
     let state = app.state::<AppState>();
-    // v0.3.15：同步前先看 PAT 是否存在；不存在则跳过本次、记错误、清错误信息。
+    // v0.3.16+：检查是否有可用账号（accounts 表）或旧版 PAT（兼容）。
+    // 不存在则跳过本次、记错误、清错误信息。
     // 之所以跳过而非报错：避免自动同步在用户未配置时反复循环报错刷屏。
-    let pat_present = {
+    let has_accounts = {
         let conn = match state.db.lock() {
             Ok(c) => c,
             Err(e) => {
@@ -80,14 +81,15 @@ pub fn run_sync(app: &AppHandle) -> Option<sync::SyncResult> {
                 return None;
             }
         };
-        !db::get_setting(&conn, "pat_token").is_empty()
+        let accounts = db::list_accounts(&conn).unwrap_or_default();
+        !accounts.is_empty() || !db::get_setting(&conn, "pat_token").is_empty()
     };
-    if !pat_present {
+    if !has_accounts {
         let conn = state.db.lock().ok()?;
         let _ = db::set_setting(
             &conn,
             "last_sync_error",
-            "未配置 GitHub PAT，请在设置面板粘贴 token（fine-grained 推荐）",
+            "未配置 GitHub 账号，请在账号管理中添加账号",
         );
         return None;
     }
@@ -219,6 +221,26 @@ pub fn run() {
             // v0.3.19+：关于页面 —— 当前版本号 + 检查更新。
             commands::get_app_version,
             commands::check_latest_release,
+            // v0.3.20+：Label→Status 映射管理。
+            commands::list_label_mappings,
+            commands::upsert_label_mapping,
+            commands::delete_label_mapping,
+            // v0.3.21+：Label 列视图 + 看板模式切换。
+            commands::get_label_columns_for_account,
+            commands::set_board_mode,
+            // v0.3.22+：Project Status 诊断。
+            commands::diagnose_project_status,
+            commands::list_projects,
+            commands::list_project_statuses,
+            // v0.3.23+：同步日志管理。
+            commands::list_sync_logs,
+            commands::prune_sync_logs,
+            // v0.3.24+：记事本管理。
+            commands::list_notes,
+            commands::add_note,
+            commands::update_note,
+            commands::update_note_label,
+            commands::delete_note,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");

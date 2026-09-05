@@ -5,7 +5,10 @@ import Board from "./components/Board";
 import DetailPanel from "./components/DetailPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import AboutPanel from "./components/AboutPanel";
-import type { Account, Settings as SettingsT, Task } from "./types";
+import AccountsPanel from "./components/AccountsPanel";
+import SyncLogsPanel from "./components/SyncLogsPanel";
+import NotesPanel from "./components/NotesPanel";
+import type { Account, BoardMode, ProjectStatus, Settings as SettingsT, Task } from "./types";
 
 export default function App() {
   return (
@@ -14,20 +17,20 @@ export default function App() {
     </I18nProvider>
   );
 }
-
 function BoardApp() {
   const { lang, t } = useI18n();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState<SettingsT | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showAbout, setShowAbout] = useState(false);
+  // 互斥弹窗状态：同一时刻仅显示一个（设置/关于/账号/同步日志）。
+  const [activeModal, setActiveModal] = useState<"settings" | "about" | "accounts" | "synclogs" | null>(null);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
   const [repo, setRepo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([]);
 
   // 同步结果 banner 4 秒后自动消失（错误 banner 不受影响，由下次操作覆盖）。
   useEffect(() => {
@@ -61,12 +64,37 @@ function BoardApp() {
     }
   }, []);
 
+  const loadProjectStatuses = useCallback(async () => {
+    try {
+      const activeId = settings?.activeAccountId;
+      if (activeId) {
+        const all = await api.listProjectStatuses(activeId);
+        // 按 project_github_id 分组，取条目数最多的项目（主项目）的状态
+        const byProject = new Map<string, typeof all>();
+        for (const ps of all) {
+          const arr = byProject.get(ps.projectGithubId) ?? [];
+          arr.push(ps);
+          byProject.set(ps.projectGithubId, arr);
+        }
+        // 取条目最多的项目
+        let best: typeof all = [];
+        for (const arr of byProject.values()) {
+          if (arr.length > best.length) best = arr;
+        }
+        setProjectStatuses(best);
+      }
+    } catch (e) {
+      console.warn("加载项目状态选项失败:", e);
+    }
+  }, [settings?.activeAccountId]);
+
   useEffect(() => {
     void load();
     void loadSettings();
     const un = onSynced((r) => {
       void load();
       void loadSettings();
+      void loadProjectStatuses();
       const warn = r.warning ? ` · ⚠️ ${r.warning}` : "";
       const prune = r.pruned > 0 ? ` · ${t("sync.pruned", { n: r.pruned })}` : "";
       setLastResult(
@@ -77,6 +105,11 @@ function BoardApp() {
       void un.then((f) => f());
     };
   }, [load, loadSettings, t]);
+
+  // settings 加载完成后拉取项目 Status 选项
+  useEffect(() => {
+    void loadProjectStatuses();
+  }, [loadProjectStatuses]);
 
   // 仓库列表（去重排序），用于仓库筛选下拉。
   const repos = useMemo(
@@ -135,69 +168,31 @@ function BoardApp() {
     }
   };
 
-  // v0.3.16+：切换视图模式（single/all）。
-  const handleSwitchView = async (mode: "single" | "all") => {
-    setError(null);
-    try {
-      await api.setViewMode(mode);
-      await loadSettings();
-      await load();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   const selectedTask = tasks.find((t) => t.key === selected) ?? null;
-
-  // v0.3.16+：当前激活账号对象（用于顶栏显示）。
-  const activeAccount = useMemo(
-    () =>
-      settings?.accounts.find((a) => a.id === settings.activeAccountId) ??
-      null,
-    [settings],
-  );
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <span className="brand">TaskBoard</span>
-          {/* v0.3.16+：账号下拉 + 视图模式切换。 */}
+          {/* v0.3.16+：账号下拉。v0.3.x：暂隐藏「全部账号」视图模式，
+              待 project status map 功能落地后再恢复。 */}
           <select
             className="select"
-            value={settings?.viewMode ?? "single"}
-            onChange={(e) =>
-              void handleSwitchView(e.target.value as "single" | "all")
-            }
-            title={t("topbar.viewModeTitle")}
+            value={settings?.activeAccountId ?? 0}
+            onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
+            title={t("topbar.switchAccount")}
           >
-            <option value="single">{t("topbar.singleAccount")}</option>
-            <option value="all">{t("topbar.allAccounts")}</option>
+            {(settings?.accounts ?? []).length === 0 && (
+              <option value={0}>{t("topbar.noAccounts")}</option>
+            )}
+            {(settings?.accounts ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                @{a.login}
+                {a.org ? ` (${a.org})` : ""}
+              </option>
+            ))}
           </select>
-          {settings?.viewMode === "single" && (
-            <select
-              className="select"
-              value={settings?.activeAccountId ?? 0}
-              onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
-              title={t("topbar.switchAccount")}
-            >
-              {(settings?.accounts ?? []).length === 0 && (
-                <option value={0}>{t("topbar.noAccounts")}</option>
-              )}
-              {(settings?.accounts ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label} (@{a.login})
-                </option>
-              ))}
-            </select>
-          )}
           <span className="muted">
-            {activeAccount
-              ? `${activeAccount.login} @ ${activeAccount.org}`
-              : settings?.hasPat === false
-                ? t("topbar.noPat")
-                : t("topbar.notLoggedIn")}
-            {" · "}
             {t("topbar.totalCount", { n: visible.length })}
           </span>
         </div>
@@ -206,14 +201,25 @@ function BoardApp() {
           <span className="muted small">
             {t("topbar.lastSync", { time: fmtTime(settings?.lastSyncAt ?? 0, lang) })}
           </span>
-          <button className="btn" onClick={() => setShowAbout(true)}>
-            {t("btn.about")}
+<button className="btn" onClick={() => setActiveModal(activeModal === "about" ? null : "about")} title={t("btn.about")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            <span className="btn-label">{t("btn.about")}</span>
           </button>
-          <button className="btn" onClick={() => setShowSettings(true)}>
-            {t("btn.settings")}
+          <button className="btn" onClick={() => setActiveModal(activeModal === "settings" ? null : "settings")} title={t("btn.settings")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+            <span className="btn-label">{t("btn.settings")}</span>
           </button>
-          <button className="btn primary" onClick={doSync} disabled={syncing}>
-            {syncing ? t("btn.syncing") : t("btn.syncNow")}
+          <button className="btn" onClick={() => setActiveModal(activeModal === "accounts" ? null : "accounts")} title={t("btn.accounts")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span className="btn-label">{t("btn.accounts")}</span>
+          </button>
+          <button className="btn" onClick={() => setActiveModal(activeModal === "synclogs" ? null : "synclogs")} title={t("syncLogs.title")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+            <span className="btn-label">{t("syncLogs.title")}</span>
+          </button>
+          <button className="btn primary" onClick={doSync} disabled={syncing} title={syncing ? t("btn.syncing") : t("btn.syncNow")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            <span className="btn-label">{syncing ? t("btn.syncing") : t("btn.syncNow")}</span>
           </button>
         </div>
       </header>
@@ -262,6 +268,22 @@ function BoardApp() {
             {t("btn.reset")}
           </button>
         )}
+
+        {/* v0.3.21+：看板列模式切换（Project Status 列视图） */}
+        <select
+          className="select"
+          value={settings?.boardMode ?? "project"}
+          onChange={(e) => {
+            const mode = e.target.value as BoardMode;
+            if (mode !== settings?.boardMode) {
+              void api.setBoardMode(mode);
+              void loadSettings();
+            }
+          }}
+          title={t("settings.boardModeTitle")}
+        >
+          <option value="project">{t("settings.boardModeProject")}</option>
+        </select>
       </div>
 
       {(error || lastResult) && (
@@ -271,12 +293,19 @@ function BoardApp() {
         </div>
       )}
 
-      <Board
-        tasks={visible}
-        selected={selected}
-        onSelect={setSelected}
-        accounts={accountMap}
-      />
+      <div className="main-layout">
+        <NotesPanel />
+        <div className="board-wrap">
+          <Board
+            tasks={visible}
+            selected={selected}
+            onSelect={setSelected}
+            accounts={accountMap}
+            boardMode={settings?.boardMode ?? "project"}
+            projectStatuses={projectStatuses}
+          />
+        </div>
+      </div>
 
       {selectedTask && (
         <>
@@ -295,24 +324,37 @@ function BoardApp() {
         </>
       )}
 
-      {showSettings && settings && (
+      {activeModal === "settings" && settings && (
         <SettingsPanel
           settings={settings}
           onSaved={(s) => {
             setSettings(s);
-            setShowSettings(false);
+            setActiveModal(null);
             void load();
           }}
-          onClose={() => setShowSettings(false)}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {activeModal === "accounts" && settings && (
+        <AccountsPanel
+          settings={settings}
+          onClose={() => setActiveModal(null)}
           onAccountsChanged={() => {
             void loadSettings();
           }}
         />
       )}
 
-      {showAbout && (
+{activeModal === "about" && (
         <AboutPanel
-          onClose={() => setShowAbout(false)}
+          onClose={() => setActiveModal(null)}
+        />
+      )}
+
+      {activeModal === "synclogs" && (
+        <SyncLogsPanel
+          onClose={() => setActiveModal(null)}
         />
       )}
     </div>

@@ -2,11 +2,18 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Account,
+  BoardMode,
   CheckUpdate,
   DeviceLoginPoll,
   DeviceLoginStart,
+  LabelMapping,
+  LabelMappingInput,
+  Note,
   PatStatus,
+  Project,
+  ProjectStatus,
   Settings,
+  SyncLog,
   SyncResult,
   Task,
   ViewMode,
@@ -65,8 +72,42 @@ export const api = {
   getAppVersion: () => invoke<string>("get_app_version"),
   checkLatestRelease: () =>
     invoke<CheckUpdate>("check_latest_release"),
+  // v0.3.20+：Label→Status 映射管理。
+  listLabelMappings: () => invoke<LabelMapping[]>("list_label_mappings"),
+  upsertLabelMapping: (input: LabelMappingInput) =>
+    invoke<LabelMapping>("upsert_label_mapping", {
+      org: input.org,
+      repo: input.repo,
+      label: input.label,
+      status: input.status,
+      orderIndex: input.orderIndex,
+    }),
+  deleteLabelMapping: (id: number) => invoke<void>("delete_label_mapping", { id }),
+  // v0.3.21+：看板列模式切换 + Label 列视图配置。
+  setBoardMode: (mode: BoardMode) => invoke<void>("set_board_mode", { mode }),
+  getLabelColumnsForAccount: (accountId: number) =>
+    invoke<LabelMapping[]>("get_label_columns_for_account", { accountId }),
+  // v0.3.22+：Project Status 诊断。
+  diagnoseProjectStatus: (accountId: number) =>
+    invoke<any>("diagnose_project_status", { accountId }),
+  listProjects: (accountId: number) =>
+    invoke<Project[]>("list_projects", { accountId }),
+  listProjectStatuses: (accountId: number) =>
+    invoke<ProjectStatus[]>("list_project_statuses", { accountId }),
+  // v0.3.23+：同步日志管理。
+  listSyncLogs: (limit?: number) =>
+    invoke<SyncLog[]>("list_sync_logs", { limit: limit ?? 50 }),
+  pruneSyncLogs: () => invoke<number>("prune_sync_logs"),
+  // v0.3.24+：记事本管理。
+  listNotes: () => invoke<Note[]>("list_notes"),
+  addNote: (content: string, label?: string) =>
+    invoke<Note>("add_note", { content, label: label ?? null }),
+  updateNote: (id: number, content: string) =>
+    invoke<Note>("update_note", { id, content }),
+  updateNoteLabel: (id: number, label: string) =>
+    invoke<Note>("update_note_label", { id, label }),
+  deleteNote: (id: number) => invoke<void>("delete_note", { id }),
 };
-
 export function onSynced(cb: (r: SyncResult) => void) {
   return listen<SyncResult>(SYNCED_EVENT, (e) => cb(e.payload));
 }

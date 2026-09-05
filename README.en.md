@@ -49,6 +49,7 @@ Release builds are produced automatically by GitHub Actions for all three platfo
 | Search / repo filter | Top search filters live by **repo name / number / title**; repo dropdown scopes by repo; "Reset" on the right clears all filters |
 | Interrupted session | Select a card → enter a session id + pick an agent (claude-code / workbuddy / doubao / opencode / codex / zcode / gemini-cli / cursor / aider / qwen-code, etc.) → record; copyable and clearable |
 | Handoff task | Select a card → fill details in the "Handoff" section and save (can later be written automatically by connected agents when they recognize a "create handoff task" intent) |
+| **Sync logs** | "Sync logs" button in the top bar → view recent sync history (time, trigger type, duration, status, added/updated/removed counts, errors); supports manual cleanup of expired logs, logs older than 7 days are auto-cleaned |
 | Local data | `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db` |
 
 ### Key Constraint

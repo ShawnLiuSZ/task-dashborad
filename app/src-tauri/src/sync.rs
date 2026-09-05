@@ -146,6 +146,39 @@ fn sync_account(
         account.org.clone(),
     )?;
 
+    // 发现并存储该账号下的全部 Project（best-effort）。
+    let project_ids = match client.fetch_all_projects() {
+        Ok(projects) => {
+            let github_ids: Vec<String> = projects.iter().map(|p| p.0.clone()).collect();
+            if let Err(e) = crate::db::upsert_projects(conn, account.id, &projects, now) {
+                eprintln!("[sync] 存储项目列表失败: {}", e);
+            }
+            // 清理已不存在的项目
+            if let Err(e) = crate::db::prune_projects(conn, account.id, &github_ids) {
+                eprintln!("[sync] 清理旧项目失败: {}", e);
+            }
+            // 为每个项目拉取 Status 字段选项及顺序
+            if let Err(e) = crate::db::clear_project_statuses(conn, account.id) {
+                eprintln!("[sync] 清空旧项目状态失败: {}", e);
+            }
+            for gid in &github_ids {
+                match client.fetch_project_status_options(gid) {
+                    Ok(opts) => {
+                        if let Err(e) = crate::db::upsert_project_statuses(conn, account.id, gid, &opts, now) {
+                            eprintln!("[sync] 存储项目 {} 状态选项失败: {}", gid, e);
+                        }
+                    }
+                    Err(e) => eprintln!("[sync] 拉取项目 {} 状态选项失败: {}", gid, e),
+                }
+            }
+            github_ids
+        }
+        Err(e) => {
+            eprintln!("[sync] 拉取项目列表失败（跳过 Status 联动）: {}", e);
+            Vec::new()
+        }
+    };
+
     // 多源合并：以多个稳定查询（assignee/author/mentions/commenter）覆盖 `involves:`
     // 的偶发漏拉缺陷，确保任何「与我相关」的 issue 都不会缺失。按 key 去重。
     // best-effort：单源失败不中断整次同步，其余源照常并入。
@@ -184,14 +217,21 @@ fn sync_account(
             failed.join("; ")
         ));
     }
-    let raw = github::merge_tasks_all(lists);
+    let mut raw = github::merge_tasks_all(lists);
 
     // 收集「与我相关 issue 实际所在的仓库」（去重），仅对这些仓库拉取 PR——
     // 既缩小范围、又避开 Search API 的严苛限流，改用 REST pulls 接口。
+    // 存储格式为 "owner/repo"（从 repository_url 提取的完整路径）。
     let mut pr_repos: Vec<String> = raw
         .iter()
         .filter(|t| !t.is_pr)
-        .map(|t| t.repo.clone())
+        .map(|t| {
+            if t.repo_owner.is_empty() {
+                t.repo.clone()
+            } else {
+                format!("{}/{}", t.repo_owner, t.repo)
+            }
+        })
         .collect();
     pr_repos.sort();
     pr_repos.dedup();
@@ -213,14 +253,48 @@ fn sync_account(
         }
     }
 
-    // 拉取 OMS Kanban 项目 Status 字段（best-effort）。
-    let project_status = match client.fetch_project_status() {
-        Ok(m) => m,
-        Err(e) => {
-            eprintln!("[sync] 拉取项目状态失败，跳过状态联动: {}", e);
-            std::collections::HashMap::new()
+    // 拉取所有项目的 Status 字段 + 完整 issue 信息（best-effort）。
+    // fetch_project_issues 返回 status_map 和项目中发现的完整 issue 列表，
+    // 用于将「项目中有但搜索源未覆盖」的 issue 合并进同步数据。
+    let mut project_status: std::collections::HashMap<String, String> =
+        std::collections::HashMap::new();
+    let mut project_issues: Vec<github::RawTask> = Vec::new();
+    for pid in &project_ids {
+        match client.fetch_project_issues(pid, &account.org) {
+            Ok((status_map, issues)) => {
+                project_status.extend(status_map);
+                eprintln!(
+                    "[sync] project {}: status_map={} issues={}",
+                    pid,
+                    project_status.len(),
+                    issues.len()
+                );
+                project_issues.extend(issues);
+            }
+            Err(e) => eprintln!("[sync] 拉取项目 {} 状态/issue 失败: {}", pid, e),
         }
-    };
+    }
+    if project_status.is_empty() && !project_ids.is_empty() {
+        eprintln!("[sync] 警告：所有项目的 Status 映射均为空（可能没有 Status 字段）");
+    }
+
+    // 将项目中发现的 issue 合并进 raw（去重：搜索源已有的跳过）。
+    // 这确保「项目中有但用户非 assignee/author/mentions/commenter」的 issue 也能上板。
+    let existing_keys: HashSet<String> = raw.iter().map(|t| format!("{}#{}", t.repo, t.number)).collect();
+    let mut merged_from_project = 0usize;
+    for t in project_issues {
+        let k = format!("{}#{}", t.repo, t.number);
+        if !existing_keys.contains(&k) && !t.is_pr {
+            raw.push(t);
+            merged_from_project += 1;
+        }
+    }
+    if merged_from_project > 0 {
+        eprintln!(
+            "[sync] 从项目中补充了 {} 个搜索源未覆盖的 issue",
+            merged_from_project
+        );
+    }
 
     // 仅本账号的任务标记陈旧（避免「全部账号视图」下另一账号的同步误标本账号任务为陈旧）。
     conn.execute("UPDATE tasks SET stale = 1 WHERE account_id = ?1", [account.id])
@@ -261,14 +335,26 @@ fn sync_account(
             )
             .is_ok();
 
-        // 决定看板状态：closed→已完成；项目中→按 Project Status 映射；不在项目中→维持本地手动态。
+        // 决定看板状态：closed→已完成；命中 label 映射→映射状态；项目中→按 Project Status 映射；不在项目中→维持本地手动态。
         let gh_status_raw = project_status.get(&key).cloned().unwrap_or_default();
-        let final_status: &str = if t.state == "closed" {
-            "done"
+        let labels_csv = t.labels.join(",");
+        // 先用 label 映射解析（优先级：repo > org > 全局默认 > state 兜底）
+        let mapped_status = crate::db::resolve_status_from_labels(
+            conn,
+            &account.org,
+            &t.repo,
+            &labels_csv,
+            &t.state,
+        );
+        let final_status: String = if t.state == "closed" {
+            "done".to_string()
+        } else if !mapped_status.is_empty() && mapped_status != "todo" {
+            mapped_status
         } else if !gh_status_raw.is_empty() {
-            map_project_status(&gh_status_raw).unwrap_or(&existing_status)
+            // gh_status 有值时优先用 map_project_status；映射不到则保持原样
+            map_project_status(&gh_status_raw).unwrap_or(&gh_status_raw).to_string()
         } else {
-            &existing_status
+            existing_status
         };
 
         let assignees_csv = t.assignees.join(",");
@@ -296,7 +382,7 @@ fn sync_account(
         // 新评论链接：仅当评论数较上次增加且预算充足时回源拉取（控制 API 调用量）。
         let (comments_count, latest_comment_url): (i64, String) =
             if t.comments > existing_comments as u64 && comment_budget > 0 {
-                match client.fetch_comments(&t.repo, t.number) {
+                match client.fetch_comments(&t.repo, t.number, &t.repo_owner) {
                     Ok(Some(url)) => {
                         comment_budget -= 1;
                         std::thread::sleep(Duration::from_millis(80));
@@ -318,10 +404,10 @@ fn sync_account(
         conn.execute(
             "INSERT INTO tasks
                (key, owner, repo, number, title, url, gh_state, ownership,
-                status, gh_status, assignees, done_at, mentioned, comments_count,
+                status, gh_status, assignees, labels, done_at, mentioned, comments_count,
                 latest_comment_url, pr_number, pr_url, branch, candidate_done, stale, updated_at, synced_at,
                 account_id)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, 0, 0, ?19, ?20, ?21)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, 0, 0, ?20, ?21, ?22)
              ON CONFLICT(key) DO UPDATE SET
                title = excluded.title,
                repo = excluded.repo,
@@ -333,6 +419,7 @@ fn sync_account(
                stale = 0,
                gh_status = excluded.gh_status,
                assignees = excluded.assignees,
+               labels = excluded.labels,
                status = excluded.status,
                done_at = CASE
                  WHEN excluded.status = 'done' AND done_at = 0 THEN ?20
@@ -358,6 +445,7 @@ fn sync_account(
                 final_status,
                 gh_status_raw,
                 assignees_csv,
+                labels_csv,
                 done_at_val,
                 mentioned_val,
                 comments_count,
@@ -380,14 +468,15 @@ fn sync_account(
     }
 
     // 处理本账号下的陈旧任务：关闭的标为候选已完成，仍打开但已不相关的移出看板。
-    let mut stale_rows: Vec<(String, String, i64)> = Vec::new();
+    // 查询 owner（org）、repo、number、url 用于 fetch_state 构造完整仓库路径。
+    let mut stale_rows: Vec<(String, String, i64, String)> = Vec::new();
     {
         let mut stmt = conn
-            .prepare("SELECT key, repo, number FROM tasks WHERE stale = 1 AND account_id = ?1")
+            .prepare("SELECT key, repo, number, url FROM tasks WHERE stale = 1 AND account_id = ?1")
             .map_err(|e| format!("查询陈旧任务失败: {}", e))?;
         let rows = stmt
             .query_map([account.id], |r| {
-                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?))
+                Ok((r.get::<_, String>(0)?, r.get::<_, String>(1)?, r.get::<_, i64>(2)?, r.get::<_, String>(3)?))
             })
             .map_err(|e| format!("遍历陈旧任务失败: {}", e))?;
         for r in rows {
@@ -397,8 +486,14 @@ fn sync_account(
 
     let mut candidate_done = 0usize;
     let mut removed = 0usize;
-    for (key, repo, number) in stale_rows {
-        match client.fetch_state(&repo, number) {
+    for (key, repo, number, url) in stale_rows {
+        // 从 URL 提取 repo_owner（格式：https://github.com/{owner}/{repo}/issues/{number}）
+        let repo_owner_from_url = url
+            .split('/')
+            .nth(4)
+            .unwrap_or("")
+            .to_string();
+        match client.fetch_state(&repo, number, &repo_owner_from_url) {
             Ok(state) if state == "closed" => {
                 conn.execute(
                     "UPDATE tasks SET candidate_done = 1, gh_state = 'closed', status = 'done', stale = 0,
@@ -456,6 +551,14 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     }
 
     let now = now_secs();
+    // v0.3.23：记录同步开始日志（每个账号一条）
+    let mut log_ids: Vec<(i64, i64)> = Vec::new(); // (account_id, log_id)
+    for account in &target {
+        if let Ok(log_id) = crate::db::insert_sync_log(conn, account.id, "auto", now) {
+            log_ids.push((account.id, log_id));
+        }
+    }
+
     let mut total_added = 0usize;
     let mut total_updated = 0usize;
     let mut total_candidate_done = 0usize;
@@ -472,16 +575,34 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
             total_failed.push(format!("{}: 未配置 PAT", login));
             continue;
         }
+        // 查找当前账号对应的日志 id
+        let log_id = log_ids.iter().find(|(aid, _)| *aid == account.id).map(|(_, lid)| *lid);
         match sync_account(conn, account, &pat, now) {
             Ok(r) => {
                 total_added += r.added;
                 total_updated += r.updated;
                 total_candidate_done += r.candidate_done;
                 total_removed += r.removed;
-                total_failed.extend(r.failed_sources);
+                total_failed.extend(r.failed_sources.clone());
+                // 更新日志：成功
+                if let Some(lid) = log_id {
+                    let _ = crate::db::update_sync_log(
+                        conn, lid, now_secs(), "success",
+                        r.added as i64, r.updated as i64, r.removed as i64,
+                        r.candidate_done as i64, 0,
+                        &r.failed_sources.join("; "), "",
+                    );
+                }
             }
             Err(e) => {
                 total_failed.push(format!("{}: {}", login, e));
+                // 更新日志：失败
+                if let Some(lid) = log_id {
+                    let _ = crate::db::update_sync_log(
+                        conn, lid, now_secs(), "failed",
+                        0, 0, 0, 0, 0, "", &e,
+                    );
+                }
             }
         }
     }
@@ -495,6 +616,9 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         .map_err(|e| format!("清理过期已完成任务失败: {}", e))?;
 
     crate::db::set_setting(conn, "last_sync_at", &now.to_string())?;
+
+    // v0.3.23：清理超过 7 天的同步日志（保留策略）
+    let _ = crate::db::prune_sync_logs(conn, now);
 
     let total: usize = conn
         .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))

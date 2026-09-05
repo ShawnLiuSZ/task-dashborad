@@ -1,28 +1,60 @@
-# CLAUDE.md — TaskBoard 项目
+# CLAUDE.md — TaskBoard 项目（Claude Code 入口）
 
-本仓库是 **TaskBoard**：纯本地跨平台桌面（Windows / macOS / Linux，Tauri）任务看板，数据存本地 SQLite，**绝不写回 GitHub**。
+> Claude Code 在本仓库工作时加载本文件。**项目身份 / 硬约束 / 仓库结构 / KB 文档 / 分支 PR / 构建命令**等统一规则见 [`AGENTS.md`](./AGENTS.md)；本文件**仅承载 Claude Code 特有的看板自动维护约定**。
 
-## 自动维护看板（处理 issue 时请遵守）
+---
+
+## 加载顺序（必读）
+
+1. **共享规则** → [`AGENTS.md`](./AGENTS.md)
+2. **MCP 工具契约与触发规则** → [`mcp_server/AGENT_INSTRUCTIONS.md`](./mcp_server/AGENT_INSTRUCTIONS.md)
+3. **代码生成与文件风格**（与 GitHub Copilot 共用，可选）→ [`.github/copilot.instruction.md`](./.github/copilot.instruction.md)
+4. **本文件特有部分**：下方「自动维护看板」
+
+> 遇到冲突：**AGENTS.md > 本文件 > 用户口头指示**。
+
+---
+
+## 自动维护看板（Claude Code 特有约定）
 
 本项目提供 TaskBoard MCP Server。v0.3.12 起 **MCP 已内置进 TaskBoard.app 二进制**（`taskboard mcp` 子命令，无 Python 依赖），已在 WorkBuddy 接入，命令见 `~/.workbuddy/mcp.json` 的 `taskboard` 项（`/Applications/TaskBoard.app/Contents/MacOS/taskboard` + `args:["mcp"]`）。未装 app 的便携场景才用兜底的 `mcp_server/server.py`。
+
 当你处理本仓库相关的 GitHub issue 时，请按
 [`mcp_server/AGENT_INSTRUCTIONS.md`](./mcp_server/AGENT_INSTRUCTIONS.md) 的触发规则，
 通过 MCP 工具 **自动**把状态 / 会话 / 交接记录写回本地看板。
 
-速记（详细见上面的指令文件）：
-
-- 开始处理某 issue → `update_task_status(issue, "处理中")`
-- 中途停止 / 切换任务 → `record_session(issue, <会话id>, "claude-code")`
-- 用户说「生成交接任务」→ `record_handoff(issue, <已做/未做/卡点/如何恢复>)`
-- 任务完成收尾 → `update_task_status(issue, "已完成")` + `clear_session(issue)`
-- 查看现状 → `get_task_status(issue)`；列清单 → `list_my_tasks(ownership="notassignee")`
+**MCP 工具速记表**见 [`AGENTS.md §7`](./AGENTS.md)（6 个工具：`update_task_status` / `get_task_status` / `record_session` / `record_handoff` / `clear_session` / `list_my_tasks`）。Claude Code 调用时 `<agent-name>` 固定传 `"claude-code"`，便于多 agent 写入时区分。
 
 `issue` 支持 `repo#number` / `owner/repo#number` / GitHub URL 三种写法。
 **只写本地看板，绝不调用 GitHub API、绝不改 Issue / Project / label / 评论。**
 
-## 仓库结构
+---
 
-- `app/` — Tauri 应用（Rust 后端 `src-tauri/src/*` + React/TS 前端 `src/*`），数据存 SQLite
-- `mcp_server/server.py` — 让 Agent 自动维护看板的 MCP Server（stdio，纯标准库；**便携/开发兜底**，常态请直接用 app 内 `taskboard mcp` 子命令）
-- `app/src-tauri/src/mcp.rs` — 内置 MCP Server（Rust，随 app 二进制打包；`main.rs` 在 argv 含 `mcp` 时进入 stdio JSON-RPC 循环）
-- `PRD.md` / `README.md` — 需求与变更记录
+## 工作流程规范
+
+### PR 创建前必须完成的事项
+
+在创建 PR 之前，必须确保以下内容已全部完成并提交：
+
+1. **代码实现**（功能代码、测试等）
+2. **知识库文档**（`docs/issue-<num>-<topic>.md`）
+3. **CHANGELOG 更新**（如适用）
+
+**正确流程：**
+```
+写代码 → 写知识库文档 → 一起提交推送 → 再创建 PR
+```
+
+**错误流程：**
+```
+写代码 → 提交推送 → 创建 PR → 再补文档 → 再提交推送
+```
+
+违反此规范会导致：
+- PR 描述不完整
+- 需要多次提交推送
+- 审查者看不到完整上下文
+
+---
+
+> 本文件由项目维护者维护。如发现本指令与 `AGENTS.md` / `AGENT_INSTRUCTIONS.md` 不一致，**以 `AGENTS.md` 为准**，并提交 PR 修复。

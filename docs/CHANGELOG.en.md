@@ -2,6 +2,44 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.24 (2026-09-05) — Notepad & account system & sync logs & topbar layout (incl. #6/#7/#27/#26/#31/#24/#25/#37/#38/#41/#33/#9/#48)**
+  - **Multi-account & account system (#25/#31/#33/#38)**: fixed second-account 422; added an accounts panel (add/remove/switch); deleting an account now cascades clean-up of all its local data; removed the org default switch.
+  - **Notepad panel (#9)**: a standalone notes column on the far left of the board.
+  - **Sync logs (#27)**: records the last week's sync activity in-app with auto-expiry; new "Sync Logs" modal.
+  - **Topbar layout optimization (#48)**: right button group no longer wraps; removed the leftmost "TaskBoard" text; 5 buttons got inline SVG icons (icons only below 1100px); the four modals unified into a mutually-exclusive `activeModal` (fixes overlap, root cause same as #26); modal height clamps to the viewport with internal scroll; mask z-index raised so the modal is no longer covered by the search bar.
+  - **Sync experience (#24)**: auto-refresh after a sync completes.
+  - **i18n (#7)**: Chinese/English UI switching; GitHub auth countdown format fix (#6).
+  - **MCP silencing (#41)**: hides db column-migration logs in MCP calls.
+  - **KB docs**: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md), [`docs/issue-27-sync-logs.md`](./issue-27-sync-logs.md), [`docs/issue-33-cascade-delete-account.md`](./issue-33-cascade-delete-account.md), [`docs/issue-41-mcp-silent-migration.md`](./issue-41-mcp-silent-migration.md), [`docs/issue-9-notepad-panel.md`](./issue-9-notepad-panel.md)
+
+- **v0.3.23 (2026-09-05) — Sync logs feature (#27)**
+
+  - Requirement: after sync operations (scheduled/manual), users cannot view sync history and error details, making it difficult to troubleshoot issues like "partial account failures / 422 errors".
+
+  - Changes:
+
+    - `db.rs`: added `sync_logs` table (account_id, trigger_type, started_at, finished_at, status, added/updated/removed/candidate_done/pruned counts, failed_sources, error_message), auto-creates table and indexes.
+
+    - `sync.rs`: inserts log at sync start for each target account, updates log status and statistics on completion; auto-cleans logs older than 7 days after each sync.
+
+    - `commands.rs`: added `list_sync_logs` (list sync logs) and `prune_sync_logs` (clean expired logs) Tauri commands.
+
+    - `lib.rs`: registered new commands.
+
+    - `types.ts`: added `SyncLog` type.
+
+    - `api.ts`: added `listSyncLogs` and `pruneSyncLogs` API calls.
+
+    - `SyncLogsPanel.tsx`: new sync logs panel component, displays recent 100 sync records (time, trigger type, duration, status, added/updated/removed counts, error info), supports manual cleanup of expired logs.
+
+    - `App.tsx`: added "Sync logs" button in the top bar.
+
+    - `styles.css`: added sync logs panel styles.
+
+  - Verification: `cargo check` passes; `npx tsc --noEmit` passes; `npm run tauri build` compiles successfully.
+
+  - Knowledge base doc: [`docs/issue-27-sync-logs.md`](./issue-27-sync-logs.md)
+
 - **v0.3.19 (2026-09-05) — About page + check for updates (#21)**
 
   - Background: the app had no in-app version display or update entry, so users could not tell the current version or trigger an upgrade.

@@ -211,6 +211,85 @@ def tool_clear_session(issue):
 
 
 # --------------------------------------------------------------------------- #
+# v0.3.24+：记事本工具
+# --------------------------------------------------------------------------- #
+VALID_NOTE_LABELS = {"low", "medium", "high", "urgent"}
+
+
+def tool_list_notes():
+    """列出所有记事，按 created_at 降序。"""
+    rows = conn().execute(
+        "SELECT id, content, label, created_at, updated_at FROM notes ORDER BY created_at DESC"
+    ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def tool_add_note(content, label="low"):
+    """新增记事，返回新记录。"""
+    content = (content or "").strip()
+    if not content:
+        raise ValueError("记事内容不能为空")
+    label = (label or "low").strip().lower()
+    if label not in VALID_NOTE_LABELS:
+        raise ValueError(f"无效标签: {label}（可选: low/medium/high/urgent）")
+    now = int(time.time())
+    conn().execute(
+        "INSERT INTO notes (content, label, created_at, updated_at) VALUES (?, ?, ?, ?)",
+        (content, label, now, now),
+    )
+    conn().commit()
+    row_id = conn().execute("SELECT last_insert_rowid()").fetchone()[0]
+    row = conn().execute(
+        "SELECT id, content, label, created_at, updated_at FROM notes WHERE id=?", (row_id,)
+    ).fetchone()
+    return dict(row)
+
+
+def tool_update_note(note_id, content):
+    """更新记事内容，返回更新后的记录。"""
+    content = (content or "").strip()
+    if not content:
+        raise ValueError("记事内容不能为空")
+    now = int(time.time())
+    cur = conn().execute(
+        "UPDATE notes SET content=?, updated_at=? WHERE id=?", (content, now, note_id)
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"记事 #{note_id} 不存在")
+    conn().commit()
+    row = conn().execute(
+        "SELECT id, content, label, created_at, updated_at FROM notes WHERE id=?", (note_id,)
+    ).fetchone()
+    return dict(row)
+
+
+def tool_update_note_label(note_id, label):
+    """更新记事标签，返回更新后的记录。"""
+    label = (label or "").strip().lower()
+    if label not in VALID_NOTE_LABELS:
+        raise ValueError(f"无效标签: {label}（可选: low/medium/high/urgent）")
+    cur = conn().execute(
+        "UPDATE notes SET label=? WHERE id=?", (label, note_id)
+    )
+    if cur.rowcount == 0:
+        raise ValueError(f"记事 #{note_id} 不存在")
+    conn().commit()
+    row = conn().execute(
+        "SELECT id, content, label, created_at, updated_at FROM notes WHERE id=?", (note_id,)
+    ).fetchone()
+    return dict(row)
+
+
+def tool_delete_note(note_id):
+    """删除记事。"""
+    cur = conn().execute("DELETE FROM notes WHERE id=?", (note_id,))
+    if cur.rowcount == 0:
+        raise ValueError(f"记事 #{note_id} 不存在")
+    conn().commit()
+    return {"ok": True, "id": note_id}
+
+
+# --------------------------------------------------------------------------- #
 # 工具注册表（名称 + 入参 JSON Schema + 处理函数）
 # --------------------------------------------------------------------------- #
 TOOLS = [
@@ -302,6 +381,72 @@ TOOLS = [
         },
         "handler": tool_clear_session,
     },
+    # v0.3.24+：记事本工具
+    {
+        "name": "list_notes",
+        "description": "列出所有记事，按创建时间降序（最新的在前）。",
+        "inputSchema": {"type": "object", "properties": {}},
+        "handler": tool_list_notes,
+    },
+    {
+        "name": "add_note",
+        "description": "新增一条记事，返回新记录（含 id、创建时间）。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "content": {"type": "string", "description": "记事内容"},
+                "label": {
+                    "type": "string",
+                    "description": "标签：low/medium/high/urgent（默认 low）",
+                    "enum": ["low", "medium", "high", "urgent"],
+                },
+            },
+            "required": ["content"],
+        },
+        "handler": tool_add_note,
+    },
+    {
+        "name": "update_note",
+        "description": "更新记事内容，返回更新后的记录。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "integer", "description": "记事 id"},
+                "content": {"type": "string", "description": "新的记事内容"},
+            },
+            "required": ["note_id", "content"],
+        },
+        "handler": tool_update_note,
+    },
+    {
+        "name": "update_note_label",
+        "description": "更新记事标签（low/medium/high/urgent），返回更新后的记录。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "integer", "description": "记事 id"},
+                "label": {
+                    "type": "string",
+                    "description": "标签：low/medium/high/urgent",
+                    "enum": ["low", "medium", "high", "urgent"],
+                },
+            },
+            "required": ["note_id", "label"],
+        },
+        "handler": tool_update_note_label,
+    },
+    {
+        "name": "delete_note",
+        "description": "删除一条记事。",
+        "inputSchema": {
+            "type": "object",
+            "properties": {
+                "note_id": {"type": "integer", "description": "记事 id"},
+            },
+            "required": ["note_id"],
+        },
+        "handler": tool_delete_note,
+    },
 ]
 
 TOOL_BY_NAME = {t["name"]: t for t in TOOLS}
@@ -367,7 +512,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "taskboard", "version": "0.3.19"},
+                "serverInfo": {"name": "taskboard", "version": "0.3.24"},
             },
         }
 

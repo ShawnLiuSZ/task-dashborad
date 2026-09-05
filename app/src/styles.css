@@ -12,6 +12,28 @@
   --amber-text: #8a5a00;
   --teal-bg: #dcf3ec;
   --teal-text: #0b6b4f;
+
+  /* 20 status colors — 高对比度排列，相邻色相差距≥30° */
+  --status-0: #e11d48;
+  --status-1: #0891b2;
+  --status-2: #65a30d;
+  --status-3: #7c3aed;
+  --status-4: #ea580c;
+  --status-5: #0d9488;
+  --status-6: #c026d3;
+  --status-7: #ca8a04;
+  --status-8: #2563eb;
+  --status-9: #dc2626;
+  --status-10: #059669;
+  --status-11: #9333ea;
+  --status-12: #e11d48;
+  --status-13: #0284c7;
+  --status-14: #16a34a;
+  --status-15: #a855f7;
+  --status-16: #f97316;
+  --status-17: #14b8a6;
+  --status-18: #d946ef;
+  --status-19: #eab308;
 }
 
 * {
@@ -72,6 +94,26 @@ body {
   gap: 10px;
 }
 
+/* 左侧/右侧按钮组禁止折行（窗口过窄时触发整窗横向滚动）。 */
+.topbar-left,
+.topbar-right {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* 顶部栏按钮内联图标：默认与文字同排，窄窗口下隐藏文字仅留图标。 */
+.btn .btn-icon {
+  flex: 0 0 auto;
+}
+
+/* 窗口过窄时，顶部栏「关于/设置/账号/同步日志/立即同步」只显示图标。 */
+@media (max-width: 1100px) {
+  .topbar-right .btn-label {
+    display: none;
+  }
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -93,11 +135,6 @@ body {
 
 .toolbar .select {
   flex: 0 0 auto;
-}
-
-.brand {
-  font-size: 14px;
-  font-weight: 500;
 }
 
 .banner-row {
@@ -124,6 +161,32 @@ body {
 .banner.error {
   background: #fdecec;
   color: #a32d2d;
+}
+
+/* v0.3.22+：Project Status 诊断结果（多行文本）。 */
+.diag-banner {
+  white-space: pre-line;
+}
+
+/* v0.3.22+：账号下的项目列表。 */
+.project-list {
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.project-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 0.5px solid var(--border);
+}
+.project-row:last-child {
+  border-bottom: none;
+}
+.project-name {
+  font-size: 12px;
+  font-weight: 500;
 }
 
 /* v0.3.15+：设置面板的 PAT 块专用样式。 */
@@ -235,6 +298,50 @@ body {
   background: #0b6b4f;
 }
 
+/* 20 status colors for column dots */
+.dot-status-0 { background: var(--status-0); }
+.dot-status-1 { background: var(--status-1); }
+.dot-status-2 { background: var(--status-2); }
+.dot-status-3 { background: var(--status-3); }
+.dot-status-4 { background: var(--status-4); }
+.dot-status-5 { background: var(--status-5); }
+.dot-status-6 { background: var(--status-6); }
+.dot-status-7 { background: var(--status-7); }
+.dot-status-8 { background: var(--status-8); }
+.dot-status-9 { background: var(--status-9); }
+.dot-status-10 { background: var(--status-10); }
+.dot-status-11 { background: var(--status-11); }
+.dot-status-12 { background: var(--status-12); }
+.dot-status-13 { background: var(--status-13); }
+.dot-status-14 { background: var(--status-14); }
+.dot-status-15 { background: var(--status-15); }
+.dot-status-16 { background: var(--status-16); }
+.dot-status-17 { background: var(--status-17); }
+.dot-status-18 { background: var(--status-18); }
+.dot-status-19 { background: var(--status-19); }
+
+/* 20 status colors for column backgrounds (very light tint) */
+.column-status-0 { border-top: 3px solid var(--status-0); }
+.column-status-1 { border-top: 3px solid var(--status-1); }
+.column-status-2 { border-top: 3px solid var(--status-2); }
+.column-status-3 { border-top: 3px solid var(--status-3); }
+.column-status-4 { border-top: 3px solid var(--status-4); }
+.column-status-5 { border-top: 3px solid var(--status-5); }
+.column-status-6 { border-top: 3px solid var(--status-6); }
+.column-status-7 { border-top: 3px solid var(--status-7); }
+.column-status-8 { border-top: 3px solid var(--status-8); }
+.column-status-9 { border-top: 3px solid var(--status-9); }
+.column-status-10 { border-top: 3px solid var(--status-10); }
+.column-status-11 { border-top: 3px solid var(--status-11); }
+.column-status-12 { border-top: 3px solid var(--status-12); }
+.column-status-13 { border-top: 3px solid var(--status-13); }
+.column-status-14 { border-top: 3px solid var(--status-14); }
+.column-status-15 { border-top: 3px solid var(--status-15); }
+.column-status-16 { border-top: 3px solid var(--status-16); }
+.column-status-17 { border-top: 3px solid var(--status-17); }
+.column-status-18 { border-top: 3px solid var(--status-18); }
+.column-status-19 { border-top: 3px solid var(--status-19); }
+
 .column-body {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -311,6 +418,28 @@ body {
   border-radius: 4px;
 }
 
+/* 20 repo color classes — 复用 status 色系，浅底深字 */
+.repo-0 { background: #fff1f2; color: #be123c; }
+.repo-1 { background: #ecfeff; color: #0e7490; }
+.repo-2 { background: #f7fee7; color: #3f6212; }
+.repo-3 { background: #f5f3ff; color: #6d28d9; }
+.repo-4 { background: #fff7ed; color: #c2410c; }
+.repo-5 { background: #f0fdfa; color: #0f766e; }
+.repo-6 { background: #fdf4ff; color: #a21caf; }
+.repo-7 { background: #fefce8; color: #a16207; }
+.repo-8 { background: #eff6ff; color: #1d4ed8; }
+.repo-9 { background: #fef2f2; color: #b91c1c; }
+.repo-10 { background: #ecfdf5; color: #047857; }
+.repo-11 { background: #faf5ff; color: #7e22ce; }
+.repo-12 { background: #fff1f2; color: #be123c; }
+.repo-13 { background: #f0f9ff; color: #0369a1; }
+.repo-14 { background: #f0fdf4; color: #15803d; }
+.repo-15 { background: #faf5ff; color: #9333ea; }
+.repo-16 { background: #fff7ed; color: #c2410c; }
+.repo-17 { background: #f0fdfa; color: #0f766e; }
+.repo-18 { background: #fdf4ff; color: #a21caf; }
+.repo-19 { background: #fefce8; color: #a16207; }
+
 .num {
   font-size: 11px;
   color: var(--text-3);
@@ -330,9 +459,41 @@ body {
 }
 
 /* card-top 内状态徽章靠右对齐（「★我的」之后、推到行尾）。 */
-.card-top .gh-status {
+.card-top .gh-status,
+.card-top .gh-state {
   margin-left: auto;
   flex: 0 0 auto;
+}
+
+/* GitHub Issue 状态徽章：open / closed */
+.gh-state {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70px;
+}
+
+.card-top .gh-state {
+  margin-left: 4px;
+  flex: 0 0 auto;
+}
+
+.gh-state-open {
+  background: #d4edda;
+  color: #155724;
+  border-color: #c3e6cb;
+}
+
+.gh-state-closed {
+  background: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
 }
 
 /* ===== gh_status 五类配色（浅底深字，与看板列色语义一致） ===== */
@@ -365,6 +526,28 @@ body {
   color: #b42323;
   border-color: #f3bcbc;
 }
+
+/* 20 status colors for project status tags and column dots — 高对比度 */
+.gh-status-0 { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.gh-status-1 { background: #ecfeff; color: #0e7490; border-color: #a5f3fc; }
+.gh-status-2 { background: #f7fee7; color: #3f6212; border-color: #d9f99d; }
+.gh-status-3 { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+.gh-status-4 { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.gh-status-5 { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+.gh-status-6 { background: #fdf4ff; color: #a21caf; border-color: #f0abfc; }
+.gh-status-7 { background: #fefce8; color: #a16207; border-color: #fef08a; }
+.gh-status-8 { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.gh-status-9 { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.gh-status-10 { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.gh-status-11 { background: #faf5ff; color: #7e22ce; border-color: #e9d5ff; }
+.gh-status-12 { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.gh-status-13 { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+.gh-status-14 { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+.gh-status-15 { background: #faf5ff; color: #9333ea; border-color: #e9d5ff; }
+.gh-status-16 { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.gh-status-17 { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+.gh-status-18 { background: #fdf4ff; color: #a21caf; border-color: #f0abfc; }
+.gh-status-19 { background: #fefce8; color: #a16207; border-color: #fef08a; }
 
 /* v0.3.17+：issue 状态独立行（标题下方），左对齐、不与标题行挤占。
    （后调整：状态徽章回到 card-top「★我的」之后，本行样式保留仅供回退参考。） */
@@ -566,7 +749,7 @@ body {
   top: 46px;
   right: 0;
   bottom: 0;
-  width: 380px;
+  width: 460px;
   background: var(--surface);
   border-left: 0.5px solid var(--border);
   padding: 14px 16px;
@@ -662,6 +845,9 @@ body {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 0.5px solid var(--border-strong);
   background: transparent;
   color: var(--text);
@@ -699,6 +885,12 @@ body {
   color: var(--text-2);
 }
 
+.btn.inline {
+  display: inline;
+  padding: 0 4px;
+  vertical-align: middle;
+}
+
 .input,
 .select {
   border: 0.5px solid var(--border-strong);
@@ -731,6 +923,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 高于 topbar/toolbar（z-index:5），矮窗口下弹窗顶栏不被搜索栏压住。 */
+  z-index: 20;
 }
 
 .modal {
@@ -738,6 +932,9 @@ body {
   background: var(--surface);
   border-radius: 12px;
   padding: 18px 20px;
+  /* 弹窗适配窗口高度：超高时内部出现 Y 轴滚动，避免标题/底部被截。 */
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
 }
 
 .modal-title {
@@ -973,4 +1170,553 @@ body {
   color: var(--text);
   font-family: "SF Mono", Menlo, monospace;
   word-break: break-all;
+}
+
+/* ===== v0.3.23+ 同步日志面板 ============================================ */
+
+.sync-logs-modal {
+  width: 720px;
+  max-width: 90vw;
+}
+
+.sync-logs-body {
+  max-height: 50vh;
+  overflow-y: auto;
+}
+
+.sync-logs-table-wrap {
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+
+.sync-logs-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.sync-logs-table th {
+  background: var(--surface-2);
+  padding: 6px 8px;
+  text-align: left;
+  font-weight: 500;
+  color: var(--text-2);
+  border-bottom: 0.5px solid var(--border);
+  white-space: nowrap;
+}
+
+.sync-logs-table td {
+  padding: 6px 8px;
+  border-bottom: 0.5px solid var(--border);
+  vertical-align: top;
+}
+
+.sync-logs-table tr:last-child td {
+  border-bottom: none;
+}
+
+.sync-logs-table .nowrap {
+  white-space: nowrap;
+}
+
+.sync-logs-table .error-cell {
+  max-width: 200px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: #a32d2d;
+}
+
+.badge {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: 4px;
+  font-size: 11px;
+  font-weight: 500;
+}
+
+.badge.success {
+  background: var(--teal-bg);
+  color: var(--teal-text);
+}
+
+.badge.error {
+  background: #fdecec;
+  color: #a32d2d;
+}
+
+.badge.muted {
+  background: var(--surface-2);
+  color: var(--text-2);
+}
+
+/* v0.3.24+：主布局（记事本 + 看板）。
+ * 用 grid：记事本列在第 1 列、永远不动；看板在第 2 列、独自横向滚动。
+ * 这样横向滚动条只会出现在「记事本列右边」——避免滚动条穿过 panel 下方。 */
+.main-layout {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  grid-template-rows: minmax(0, 1fr);
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.board-wrap {
+  min-width: 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  overflow-x: auto;
+  overflow-y: hidden;
+  padding: 0 16px 16px;
+}
+
+/* v0.3.24+：记事本面板（与看板列同构：320px / surface-2 / 10px 圆角） */
+.notes-panel {
+  flex: 0 0 320px;
+  width: 320px;
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  margin: 12px 0 16px 16px;
+  background: var(--surface-2);
+  border-radius: 10px;
+  overflow: hidden;
+  /* 冻结在最左侧：看板横向滚动时记事本列始终可见。 */
+  position: sticky;
+  left: 16px;
+  z-index: 2;
+  box-shadow: 2px 0 8px rgba(0, 0, 0, 0.05);
+}
+
+/* 收起态：竖向导轨，宽 36px。 */
+.notes-panel.collapsed {
+  flex: 0 0 36px;
+  width: 36px;
+}
+
+.notes-rail {
+  flex: 1 1 auto;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+  padding: 10px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  transition: color 0.15s, background 0.15s;
+}
+
+.notes-rail:hover {
+  background: rgba(0, 0, 0, 0.04);
+  color: var(--text);
+}
+
+.notes-rail-text {
+  writing-mode: vertical-rl;
+  letter-spacing: 2px;
+}
+
+.notes-rail-count {
+  min-width: 16px;
+  padding: 0 4px;
+  border-radius: 8px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-3);
+  font-size: 10px;
+  text-align: center;
+}
+
+.notes-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex: 0 0 auto;
+  margin: 8px 8px 2px;
+  padding: 5px 10px;
+  border-radius: 7px;
+  background: #e8eaed;
+}
+
+.notes-head-icon {
+  display: inline-flex;
+  color: var(--text-2);
+}
+
+.notes-title {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text);
+}
+
+.notes-count {
+  margin-left: auto;
+  min-width: 18px;
+  padding: 0 5px;
+  border-radius: 9px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-3);
+  font-size: 11px;
+  text-align: center;
+}
+
+.notes-body {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 0 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* ---------- 新建区 ---------- */
+
+.note-composer {
+  flex: 0 0 auto;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+
+.note-composer:focus-within {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 108, 255, 0.1);
+}
+
+.note-textarea {
+  width: 100%;
+  /* 空白时占两行（42px），随后由 useAutoSize 按内容增高，上限 260px。 */
+  min-height: 42px;
+  max-height: 260px;
+  padding: 1px 2px 0;
+  border: 0;
+  background: transparent;
+  color: var(--text);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.6;
+  resize: none;
+  overflow-y: auto;
+}
+
+.note-textarea:focus {
+  outline: none;
+}
+
+.note-textarea::placeholder {
+  color: var(--text-3);
+}
+
+.note-composer-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+/* ---------- 标签 chip ---------- */
+
+.label-picker {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--surface-2);
+}
+
+.label-chip {
+  --chip: var(--text-3);
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1;
+  padding: 4px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.label-chip:hover {
+  color: var(--text);
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.label-chip.active {
+  background: var(--chip);
+  color: #fff;
+  font-weight: 500;
+}
+
+.label-picker.sm .label-chip {
+  padding: 3px 6px;
+  font-size: 10px;
+}
+
+/* ---------- 列表与卡片 ---------- */
+
+.notes-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.notes-placeholder,
+.notes-empty {
+  color: var(--text-3);
+  font-size: 12px;
+  text-align: center;
+  padding: 18px 8px;
+}
+
+.notes-empty {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 2px;
+  padding: 28px 12px;
+}
+
+.notes-empty-icon {
+  color: var(--border-strong);
+  margin-bottom: 4px;
+}
+
+.notes-empty p {
+  margin: 0;
+  color: var(--text-2);
+  font-size: 12px;
+}
+
+.notes-empty span {
+  font-size: 11px;
+}
+
+.note-card {
+  position: relative;
+  background: var(--surface);
+  border: 0.5px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px 6px 13px;
+  transition: box-shadow 0.15s, border-color 0.15s;
+}
+
+/* 左侧色条表示标签，替代全彩徽章 */
+.note-card::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 2px 2px 0;
+  background: var(--note-accent, var(--text-3));
+}
+
+.note-card:hover {
+  border-color: var(--border-strong);
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.note-content {
+  margin: 0 0 4px;
+  font-size: 13px;
+  line-height: 1.6;
+  color: var(--text);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.note-foot {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.note-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  border: 0;
+  background: transparent;
+  padding: 2px 4px;
+  border-radius: 4px;
+  font-family: inherit;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+
+.note-tag:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.note-dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--note-accent, var(--text-3));
+}
+
+.note-time {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-right: auto;
+  cursor: default;
+}
+
+/* 操作按钮：默认隐藏，hover / focus 时浮现 */
+.note-tools {
+  display: inline-flex;
+  gap: 2px;
+  opacity: 0;
+  transition: opacity 0.15s;
+}
+
+.note-card:hover .note-tools,
+.note-card:focus-within .note-tools {
+  opacity: 1;
+}
+
+.note-tool {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border: 0;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+}
+
+.note-tool:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+.note-tool.danger:hover {
+  background: #fdecec;
+  color: #c0392b;
+}
+
+/* ---------- 编辑 / 删除确认态 ---------- */
+
+.note-card.editing,
+.note-card.confirming {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(10, 108, 255, 0.08);
+}
+
+.note-edit-foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin-top: 6px;
+}
+
+.note-edit-actions {
+  display: inline-flex;
+  gap: 6px;
+}
+
+.note-hint {
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.note-confirm-text {
+  margin: 0 0 8px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.note-confirm-actions {
+  display: flex;
+  gap: 6px;
+}
+
+/* ---------- 小尺寸按钮（记事本编辑 / 删除确认） ---------- */
+.btn.small {
+  padding: 3px 10px;
+  font-size: 11px;
+  border-radius: 5px;
+}
+
+.btn.small.primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.btn.small.primary:hover:not(:disabled) {
+  background: #0858d6;
+  border-color: #0858d6;
+  color: #fff;
+}
+
+.btn.small.danger {
+  background: #c0392b;
+  border-color: #c0392b;
+  color: #fff;
+}
+
+.btn.small.danger:hover:not(:disabled) {
+  background: #a32d2d;
+  border-color: #a32d2d;
+  color: #fff;
+}
+
+.btn.small.ghost:hover {
+  background: var(--surface-2);
+  color: var(--text);
+}
+
+/* ---------- 记事本错误提示 ---------- */
+.note-error {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  flex: 0 0 auto;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: #fdecec;
+  color: #a32d2d;
+  font-size: 11px;
+  line-height: 1.5;
+}
+
+.note-error span {
+  flex: 1 1 auto;
+  word-break: break-word;
+}
+
+.note-error .note-tool {
+  opacity: 1;
+  color: #a32d2d;
+  width: 18px;
+  height: 18px;
+}
+
+.note-error .note-tool:hover {
+  background: rgba(163, 45, 45, 0.12);
+  color: #a32d2d;
 }
