@@ -4,7 +4,7 @@ use tauri::{AppHandle, Manager};
 
 /// 应用标识符，与 tauri.conf.json 的 `identifier` 一致。
 /// 同时用于推导无 GUI 运行时的本地数据目录（MCP 子命令等）。
-pub const APP_IDENTIFIER: &str = "com.liushizhao.taskboard";
+pub const APP_IDENTIFIER: &str = "com.shawnliu.taskboard";
 
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS accounts (
@@ -84,7 +84,7 @@ pub fn db_path(app: &AppHandle) -> Result<PathBuf, String> {
 }
 
 /// 无 AppHandle 时的数据目录（与 Tauri `app_data_dir` 解析一致）：
-/// `~/Library/Application Support/com.liushizhao.taskboard`
+/// `~/Library/Application Support/com.shawnliu.taskboard`
 pub fn data_dir() -> Result<PathBuf, String> {
     let base = dirs::data_dir().ok_or_else(|| "无法定位用户数据目录".to_string())?;
     Ok(base.join(APP_IDENTIFIER))

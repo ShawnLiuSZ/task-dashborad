@@ -11,14 +11,20 @@
   - 背景：应用内缺少版本显示与更新入口，用户无法了解当前版本或触发升级。
 
   - 新增「关于」页面（顶栏「关于」按钮进入）：
+
     - 展示当前版本号（后端读取 Rust 包版本，非前端硬编码）
+
     - 「检查更新」按钮：调用 GitHub Releases API `releases/latest`，对比当前/最新版本，显示「已是最新」或「发现新版本」并提供跳转下载
+
     - 应用仓库名改为可点击链接，经系统浏览器打开 `https://github.com/ShawnLiuSZ/task-dashborad`
+
     - 内置中英文（i18n 新增 `about.*` / `btn.about` 键）
 
   - 技术说明：`check_latest_release` 为只读公开仓库请求，无需 PAT；用 `spawn_blocking` 避免 reqwest(blocking) 阻塞主线程。
 
   - 版本号统一升至 0.3.19（Cargo / package / tauri.conf / 内置 MCP / 便携 server.py）。
+
+  - **Bundle Identifier 改为** **`com.shawnliu.taskboard`**（原 `com.liushizhao.taskboard`）：默认数据目录随之变为 `~/Library/Application Support/com.shawnliu.taskboard/`。⚠️ 已有本地数据如需沿用，请手动迁移旧目录中的 `taskboard.db` 到新目录，或试用 `TASKBOARD_DB` 指向旧库。
 
 - **v0.3.18（2026-09-05）— 建立并执行版本发布流程（首个统一版本号）**
 
@@ -36,7 +42,7 @@
 
     - `mcp_server/server.py` `serverInfo.version` 由陈旧的 0.3.10 校正为 0.3.18（便携兜底与内置二进制保持一致）
 
-  - 文档同步：README / PRD / 中英 CHANGELOG 均以 0.3.18 为准；新增英文版文档（README.en / AGENT_INSTRUCTIONS.en / CHANGELOG.en）。
+  - 文档同步：README / PRD / 中英 CHANGELOG 均以 0.3.18 为准；新增英文版文档（README.en / AGENT\_INSTRUCTIONS.en / CHANGELOG.en）。
 
   - 跨平台文档（#8）随本版一并发布：README / CLAUDE / PRD 移除「仅 macOS」表述，改为 Windows / macOS / Linux 跨平台。
 

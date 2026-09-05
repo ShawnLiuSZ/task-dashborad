@@ -16,6 +16,8 @@
 
   - Version number unified to 0.3.19 (Cargo / package / tauri.conf / built-in MCP / portable server.py).
 
+  - **Bundle Identifier changed to `com.shawnliu.taskboard`** (was `com.liushizhao.taskboard`): the default data directory is now `~/Library/Application Support/com.shawnliu.taskboard/`. ⚠️ To keep existing local data, manually move `taskboard.db` from the old directory, or point `TASKBOARD_DB` at the old DB.
+
 - **v0.3.18 (2026-09-05) — Establish and run a version-release process (first unified version number)**
 
   - Background (#5): starting from v0.3.17, establish a clear SemVer release process so the Rust/Cargo, frontend package.json, Tauri config, built-in MCP, portable `mcp_server/server.py`, and doc version numbers all stay consistent, and provide a reproducible base for future releases.
