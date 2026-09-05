@@ -6,6 +6,28 @@
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
 
+- **v0.3.18（2026-09-05）— 建立并执行版本发布流程（首个统一版本号）**
+
+  - 背景（#5）：从 v0.3.17 起建立明确的 SemVer 版本发布流程，保证 Rust/Cargo、前端 package.json、Tauri 配置、内置 MCP、便携 `mcp_server/server.py` 与文档多处版本号一致，并为后续 release 提供可复现基础。
+
+  - 版本号统一升至 0.3.18：
+
+    - `app/src-tauri/Cargo.toml` `version=0.3.18`
+
+    - `app/package.json` + `package-lock.json` `version=0.3.18`
+
+    - `app/src-tauri/tauri.conf.json` `version=0.3.18`（产物 `TaskBoard_0.3.18_*.app/dmg`）
+
+    - `app/src-tauri/src/mcp.rs` `SERVER_VERSION=0.3.18`（内置 MCP `serverInfo.version`，经 `taskboard mcp` 的 `initialize` 返回）
+
+    - `mcp_server/server.py` `serverInfo.version` 由陈旧的 0.3.10 校正为 0.3.18（便携兜底与内置二进制保持一致）
+
+  - 文档同步：README / PRD / 中英 CHANGELOG 均以 0.3.18 为准；新增英文版文档（README.en / AGENT_INSTRUCTIONS.en / CHANGELOG.en）。
+
+  - 跨平台文档（#8）随本版一并发布：README / CLAUDE / PRD 移除「仅 macOS」表述，改为 Windows / macOS / Linux 跨平台。
+
+  - 验证：`cargo check` 零警告；`cargo build --release` 产出内置 MCP 二进制（冒烟 `initialize`→`serverInfo 0.3.18`、`tools/list` 6 工具齐全）；便携 `mcp_server/server.py` 冒烟一致。
+
 - **v0.3.17（2026-09-04）— GitHub OAuth Device Flow 登录（替换 PAT 粘贴）**
 
   - 需求：登录 GitHub 不再手动创建/粘贴 PAT，改为「点按钮 → 浏览器授权」的链接登录体验。
