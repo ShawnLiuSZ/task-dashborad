@@ -94,10 +94,12 @@ body {
   gap: 10px;
 }
 
-/* 右侧按钮组禁止折行（窗口过窄时触发整窗横向滚动）。 */
+/* 左侧/右侧按钮组禁止折行（窗口过窄时触发整窗横向滚动）。 */
+.topbar-left,
 .topbar-right {
   flex-wrap: nowrap;
   white-space: nowrap;
+  flex: 0 0 auto;
 }
 
 .toolbar {
