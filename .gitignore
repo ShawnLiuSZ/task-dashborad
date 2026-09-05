@@ -12,3 +12,15 @@ dist/
 # --- Agent tooling memory (local only, not project source) ---
 .workbuddy/
 .worktrees
+
+# --- Claude Code local-only files (per-developer, NEVER commit) ---
+# CLAUDE.md is the project-level instruction (committed).
+# CLAUDE.local.md is a per-developer override that should not be tracked.
+CLAUDE.local.md
+# .claude/settings.json may be committed (shared settings).
+# .claude/settings.local.json is per-developer; never commit.
+.claude/settings.local.json
+
+# --- Override global ~/.gitignore_global §38 (AGENTS.*) ---
+# Global rule wrongly ignores our canonical AGENTS.md. Re-include it locally.
+!AGENTS.md
