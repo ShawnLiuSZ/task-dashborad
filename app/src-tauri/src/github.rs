@@ -30,8 +30,12 @@ pub struct RawTask {
     pub state: String,
     pub updated_at: String,
     pub repo: String,
+    /// 仓库 owner（从 repository_url 提取），用于构造 PR 拉取 URL。
+    pub repo_owner: String,
     #[serde(default)]
     pub assignees: Vec<String>,
+    #[serde(default)]
+    pub labels: Vec<String>,
     #[serde(default)]
     pub comments: u64,
     #[serde(default)]
@@ -62,6 +66,15 @@ impl RawTask {
             .filter(|s| !s.is_empty())
             .ok_or_else(|| format!("repository_url 异常: {repo_url}"))?
             .to_string();
+        // 提取 owner（repository倒数第二段），用于 PR 拉取 URL
+        let repo_owner = {
+            let segments: Vec<&str> = repo_url.split('/').filter(|s| !s.is_empty()).collect();
+            if segments.len() >= 2 {
+                segments[segments.len() - 2].to_string()
+            } else {
+                String::new()
+            }
+        };
         let assignees = v
             .get("assignees")
             .and_then(|a| a.as_array())
@@ -70,6 +83,15 @@ impl RawTask {
                     .filter_map(|u| {
                         u.get("login").and_then(|l| l.as_str()).map(String::from)
                     })
+                    .collect()
+            })
+            .unwrap_or_default();
+        let labels = v
+            .get("labels")
+            .and_then(|a| a.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|u| u.get("name").and_then(|l| l.as_str()).map(String::from))
                     .collect()
             })
             .unwrap_or_default();
@@ -83,7 +105,9 @@ impl RawTask {
             state: get_str("state")?,
             updated_at: get_str("updated_at")?,
             repo,
+            repo_owner,
             assignees,
+            labels,
             comments: v.get("comments").and_then(|x| x.as_u64()).unwrap_or(0),
             is_pr: v.get("pull_request").is_some(),
         })
@@ -94,8 +118,12 @@ impl RawTask {
 #[derive(Debug, Deserialize, Clone)]
 pub struct RawPr {
     /// REST pulls 数组本身不输出 repo 字段，由调用方按当前仓库回填。
+    /// 格式为纯 repo name（与 key 的 "repo#number" 一致）。
     #[serde(default)]
     pub repo: String,
+    /// PR 所在仓库的 owner（用于构造 API URL，不参与 key 构建）。
+    #[serde(default)]
+    pub repo_owner: String,
     pub number: i64,
     pub url: String,
     #[serde(default)]
@@ -113,6 +141,7 @@ impl RawPr {
     pub fn from_item(v: &serde_json::Value) -> Result<RawPr, String> {
         Ok(RawPr {
             repo: String::new(), // 调用方按当前仓库回填
+            repo_owner: String::new(), // 调用方回填
             number: v
                 .get("number")
                 .and_then(|x| x.as_i64())
@@ -172,6 +201,8 @@ pub struct GitHubClient {
     /// 调用方提供的 org（来自 accounts 表）；用于 `org:` 限定符。
     org: String,
     http: reqwest::blocking::Client,
+    /// 缓存 token 可访问的仓库列表（org/repo 格式），避免重复调用 API。
+    accessible_repos: std::sync::Mutex<Option<Vec<String>>>,
 }
 
 impl GitHubClient {
@@ -185,12 +216,12 @@ impl GitHubClient {
             return Err("GitHub PAT 为空，请在设置面板粘贴 token".to_string());
         }
         let http = reqwest::blocking::Client::builder()
-            .user_agent("taskboard/0.3.16")
+            .user_agent("taskboard/0.3.22")
             .timeout(Duration::from_secs(30))
             .connect_timeout(Duration::from_secs(10))
             .build()
             .map_err(|e| format!("构造 HTTP 客户端失败: {}", e))?;
-        Ok(Self { pat, login, org, http })
+        Ok(Self { pat, login, org, http, accessible_repos: std::sync::Mutex::new(None) })
     }
 
     /// 探测当前 PAT 是否有效，返回账号登录名。
@@ -212,30 +243,145 @@ impl GitHubClient {
         Ok(TestConnectionResult { login })
     }
 
+    /// 获取当前 token 用户所属的组织列表（`GET /user/orgs`）。
+    /// 返回 `(login, org_login)` — 第一个组织的 login；用户无组织时 org 为空。
+    /// 需要 `read:org` scope（Device Flow 已包含）。
+    pub fn fetch_user_org(&self) -> Result<String, String> {
+        let url = "https://api.github.com/user/orgs?per_page=10";
+        let resp = self.get(url)?;
+        let arr = resp
+            .as_array()
+            .ok_or_else(|| "user orgs 返回非数组".to_string())?;
+        // 取第一个组织的 login
+        let org = arr
+            .first()
+            .and_then(|o| o.get("login"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .to_string();
+        Ok(org)
+    }
+
+    /// 获取当前 token 可访问的仓库列表（在配置的 org 范围内）。
+    ///
+    /// 使用 REST API `/orgs/{org}/repos` 列出组织仓库，过滤出 token 有权限访问的。
+    /// 结果缓存在 `accessible_repos` 中，同一客户端实例仅查询一次。
+    ///
+    /// 返回 `org/repo` 或 `user/repo` 格式的仓库全名列表，供 Search API 的 `repo:` 限定符使用。
+    /// 先查组织级仓库，再查用户级仓库（合并去重）。
+    fn get_accessible_repos(&self) -> Result<Vec<String>, String> {
+        if let Ok(guard) = self.accessible_repos.lock() {
+            if let Some(ref cached) = *guard {
+                return Ok(cached.clone());
+            }
+        }
+
+        let mut repos = Vec::new();
+
+        // 1) 组织级仓库
+        if !self.org.is_empty() {
+            for page in 1..=10 {
+                let url = format!(
+                    "https://api.github.com/orgs/{}/repos?type=all&per_page=100&page={}",
+                    self.org, page
+                );
+                let v = match self.get(&url) {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let arr = match v.as_array() {
+                    Some(a) => a,
+                    None => break,
+                };
+                if arr.is_empty() { break; }
+                for repo in arr {
+                    if let Some(name) = repo.get("name").and_then(|n| n.as_str()) {
+                        repos.push(format!("{}/{}", self.org, name));
+                    }
+                }
+                if arr.len() < 100 { break; }
+            }
+        }
+
+        // 2) 用户级仓库（Project v2 可能挂在个人账号下）
+        if !self.login.is_empty() {
+            for page in 1..=10 {
+                let url = format!(
+                    "https://api.github.com/users/{}/repos?type=all&per_page=100&page={}",
+                    self.login, page
+                );
+                let v = match self.get(&url) {
+                    Ok(v) => v,
+                    Err(_) => break,
+                };
+                let arr = match v.as_array() {
+                    Some(a) => a,
+                    None => break,
+                };
+                if arr.is_empty() { break; }
+                for repo in arr {
+                    if let Some(full_name) = repo.get("full_name").and_then(|n| n.as_str()) {
+                        if !repos.iter().any(|r| r == full_name) {
+                            repos.push(full_name.to_string());
+                        }
+                    }
+                }
+                if arr.len() < 100 { break; }
+            }
+        }
+
+        if let Ok(mut guard) = self.accessible_repos.lock() {
+            *guard = Some(repos.clone());
+        }
+        Ok(repos)
+    }
+
+    /// 构造 Search API 查询字符串的基础部分（仓库限定符）。
+    ///
+    /// 优先使用 token 可访问的仓库列表构造 `repo:org/repo1 repo:org/repo2 ...`；
+    /// 若无可访问仓库或获取失败，回退到不带 `org:`/`repo:` 限定符（搜索 token 所有可见仓库）。
+    fn build_repo_qualifier(&self, base_query: &str) -> String {
+        match self.get_accessible_repos() {
+            Ok(repos) if !repos.is_empty() => {
+                let repo_qualifiers = repos.iter().map(|r| format!("repo:{}", r)).collect::<Vec<_>>().join(" ");
+                format!("{} {}", repo_qualifiers, base_query)
+            }
+            _ => {
+                eprintln!("[sync] 无可访问仓库或获取失败，回退到全可见范围搜索: {}", base_query);
+                base_query.to_string()
+            }
+        }
+    }
+
     /// 拉取「明确分配给我」的 open issue。权威来源，确保「分配给我」永不漏拉。
     pub fn fetch_assigned(&self) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} assignee:{} is:open is:issue", self.org, self.login))
+        let base = format!("assignee:{} is:issue", self.login);
+        self.search(&self.build_repo_qualifier(&base))
     }
 
-    /// 拉取「我创建」的 open issue。
+    /// 拉取「我创建」的 issue。
     pub fn fetch_authored(&self) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} author:{} is:open is:issue", self.org, self.login))
+        let base = format!("author:{} is:issue", self.login);
+        self.search(&self.build_repo_qualifier(&base))
     }
 
-    /// 拉取「@提到我」的 open issue。
+    /// 拉取「@提到我」的 issue。
     pub fn fetch_mentioned(&self) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} mentions:{} is:open is:issue", self.org, self.login))
+        let base = format!("mentions:{} is:issue", self.login);
+        self.search(&self.build_repo_qualifier(&base))
     }
 
-    /// 拉取「我评论过」的 open issue。
+    /// 拉取「我评论过」的 issue。
     pub fn fetch_commented(&self) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} commenter:{} is:open is:issue", self.org, self.login))
+        let base = format!("commenter:{} is:issue", self.login);
+        self.search(&self.build_repo_qualifier(&base))
     }
 
-    /// 拉取「与我相关」的全部 open issue。仅作补充源：GitHub 的 `involves:` 对
+    /// 拉取「与我相关」的全部 issue。仅作补充源：GitHub 的 `involves:` 对
     /// assignee 覆盖偶发不可靠，故主覆盖由上面 4 个专属查询保证。
     pub fn fetch_related(&self) -> Result<Vec<RawTask>, String> {
-        self.search(&format!("org:{} involves:{} is:open is:issue", self.org, self.login))
+        let base = format!("involves:{} is:issue", self.login);
+        self.search(&self.build_repo_qualifier(&base))
     }
 
     /// 拉取指定仓库的全部 PR（open + closed），用于把「PR 关联的 issue」反向关联回看板卡片。
@@ -248,10 +394,16 @@ impl GitHubClient {
             if repo.is_empty() {
                 continue;
             }
+            // repo 已是 "owner/name" 格式；若只是 name 则回退到 org/name
+            let full_repo = if repo.contains('/') {
+                repo.clone()
+            } else {
+                format!("{}/{}", self.org, repo)
+            };
             for page in 1..=3 {
                 let url = format!(
-                    "https://api.github.com/repos/{}/{}/pulls?state=all&per_page=100&page={}",
-                    self.org, repo, page
+                    "https://api.github.com/repos/{}/pulls?state=all&per_page=100&page={}",
+                    full_repo, page
                 );
                 // 走核心配额，不计入 Search API 节流；且 PR 数据量可能很大（一次同步达数十 MB），
                 // 设较大超时避免大仓库拉取被中断。
@@ -279,7 +431,15 @@ impl GitHubClient {
                 };
                 let n = items.len();
                 for mut pr in items {
-                    pr.repo = repo.clone();
+                    // repo 字段保持纯 name（与 key 的 "repo#number" 一致）；
+                    // repo_owner 用于需要完整路径的场景。
+                    let (owner, name) = if let Some(pos) = full_repo.find('/') {
+                        (&full_repo[..pos], &full_repo[pos + 1..])
+                    } else {
+                        ("", full_repo.as_str())
+                    };
+                    pr.repo = name.to_string();
+                    pr.repo_owner = owner.to_string();
                     all.push(pr);
                 }
                 if n < 100 {
@@ -292,14 +452,23 @@ impl GitHubClient {
 
     /// 拉取某 issue 的全部评论，返回最新一条评论的永久链接（html_url），供卡片一键跳转。
     /// 无评论返回 None。best-effort：失败返回 Err。
+    /// `repo_owner` 用于 org 为空时构造完整仓库路径。
     pub fn fetch_comments(
         &self,
         repo: &str,
         number: i64,
+        repo_owner: &str,
     ) -> Result<Option<String>, String> {
+        let full_repo = if !self.org.is_empty() {
+            format!("{}/{}", self.org, repo)
+        } else if !repo_owner.is_empty() {
+            format!("{}/{}", repo_owner, repo)
+        } else {
+            return Err("无法确定仓库 owner（org 为空且无 repo_owner）".to_string());
+        };
         let url = format!(
-            "https://api.github.com/repos/{}/{}/issues/{}/comments?per_page=100",
-            self.org, repo, number
+            "https://api.github.com/repos/{}/issues/{}/comments?per_page=100",
+            full_repo, number
         );
         let v = self.get(&url)?;
         let arr = v.as_array().ok_or_else(|| "comments 返回非数组".to_string())?;
@@ -310,10 +479,18 @@ impl GitHubClient {
     }
 
     /// 查询单个 issue 的当前状态（open/closed），用于「陈旧任务」回路判定。
-    pub fn fetch_state(&self, repo: &str, number: i64) -> Result<String, String> {
+    /// `repo_owner` 用于 org 为空时构造完整仓库路径。
+    pub fn fetch_state(&self, repo: &str, number: i64, repo_owner: &str) -> Result<String, String> {
+        let full_repo = if !self.org.is_empty() {
+            format!("{}/{}", self.org, repo)
+        } else if !repo_owner.is_empty() {
+            format!("{}/{}", repo_owner, repo)
+        } else {
+            return Err("无法确定仓库 owner（org 为空且无 repo_owner）".to_string());
+        };
         let url = format!(
-            "https://api.github.com/repos/{}/{}/issues/{}",
-            self.org, repo, number
+            "https://api.github.com/repos/{}/issues/{}",
+            full_repo, number
         );
         let v = self.get(&url)?;
         v.get("state")
@@ -327,24 +504,102 @@ impl GitHubClient {
     ///
     /// 为什么需要：看板状态联动不能只看 issue 的 open/closed——团队用 Project 的
     /// Status 字段（如「🔎开发完成/测试中」）表达进度，Search API 不返回该字段。
-    pub fn fetch_project_status(&self) -> Result<HashMap<String, String>, String> {
-        // 1. 找到 OMS Kanban 项目的 id（按标题匹配）。
-        let find_q = format!(
-            r#"query {{ organization(login:"{org}") {{ projectsV2(first:50) {{ nodes {{ id title }} }} }} }}"#,
+    /// 拉取当前账号可见的全部 Project v2（组织级 + 用户级）。
+    /// 返回 `(github_id, title, number_of_items, owner_type)` 列表。
+    pub fn fetch_all_projects(&self) -> Result<Vec<(String, String, i64, String)>, String> {
+        let mut out: Vec<(String, String, i64, String)> = Vec::new();
+
+        // 1) 组织级 projectsV2
+        let org_q = format!(
+            r#"query {{ organization(login:"{org}") {{ projectsV2(first:100, orderBy:{{field:UPDATED_AT,direction:DESC}}) {{ nodes {{ id title number closed }} }} }} }}"#,
             org = self.org
         );
-        let find = self.graphql(&find_q)?;
-        let nodes = find["data"]["organization"]["projectsV2"]["nodes"]
-            .as_array()
-            .ok_or_else(|| "无法读取组织项目列表".to_string())?;
-        let project_id = nodes
-            .iter()
-            .find(|n| n["title"].as_str() == Some("OMS Kanban"))
-            .and_then(|n| n["id"].as_str())
-            .ok_or_else(|| "未找到 OMS Kanban 项目（请确认项目名或 token 具备 project 读权限）".to_string())?
-            .to_string();
+        if let Ok(v) = self.graphql(&org_q) {
+            if let Some(nodes) = v["data"]["organization"]["projectsV2"]["nodes"].as_array() {
+                for n in nodes {
+                    if n["closed"].as_bool() == Some(true) { continue; }
+                    if let (Some(id), Some(title)) = (n["id"].as_str(), n["title"].as_str()) {
+                        let num = n["number"].as_i64().unwrap_or(0);
+                        out.push((id.to_string(), title.to_string(), num, "org".to_string()));
+                    }
+                }
+            }
+        }
 
-        // 2. 分页拉取项目全部条目，构建 `repo#number -> Status`。
+        // 2) 用户级 projectsV2
+        let user_q = format!(
+            r#"query {{ user(login:"{login}") {{ projectsV2(first:100, orderBy:{{field:UPDATED_AT,direction:DESC}}) {{ nodes {{ id title number closed }} }} }} }}"#,
+            login = self.login
+        );
+        if let Ok(v) = self.graphql(&user_q) {
+            if let Some(nodes) = v["data"]["user"]["projectsV2"]["nodes"].as_array() {
+                for n in nodes {
+                    if n["closed"].as_bool() == Some(true) { continue; }
+                    if let (Some(id), Some(title)) = (n["id"].as_str(), n["title"].as_str()) {
+                        let num = n["number"].as_i64().unwrap_or(0);
+                        out.push((id.to_string(), title.to_string(), num, "user".to_string()));
+                    }
+                }
+            }
+        }
+
+        Ok(out)
+    }
+
+    /// 拉取多个 Project 的 Status 条目，合并为 `repo#number -> Status` 映射。
+    pub fn fetch_project_status(&self, project_ids: &[String]) -> Result<HashMap<String, String>, String> {
+        let mut map: HashMap<String, String> = HashMap::new();
+        for pid in project_ids {
+            match self.fetch_project_items(pid) {
+                Ok(m) => map.extend(m),
+                Err(e) => eprintln!("[gh] 拉取 project {} 条目失败: {}", pid, e),
+            }
+        }
+        Ok(map)
+    }
+
+    /// 查询某项目的 Status 字段选项及顺序（用于看板列排序）。
+    /// 返回 `(status_name, order_index)` 列表，顺序与 GitHub 看板一致。
+    pub fn fetch_project_status_options(&self, project_id: &str) -> Result<Vec<(String, i64)>, String> {
+        // 查项目所有字段，找 Status 类型的 SingleSelectField，取其 options 顺序
+        let q = format!(
+            r#"query {{ node(id:"{pid}") {{ ... on ProjectV2 {{
+              fields(first:50) {{
+                nodes {{
+                  ... on ProjectV2SingleSelectField {{
+                    name
+                    options {{ name }}
+                  }}
+                }}
+              }}
+            }} }} }}"#,
+            pid = project_id
+        );
+        let v = self.graphql(&q)?;
+        let nodes = v["data"]["node"]["fields"]["nodes"]
+            .as_array()
+            .ok_or_else(|| "查询项目字段失败".to_string())?;
+        // 找名为 Status 的 SingleSelectField
+        for n in nodes {
+            let fname = n["name"].as_str().unwrap_or("");
+            if fname.eq_ignore_ascii_case("Status") || fname.contains("tatus") || fname.contains("状态") {
+                let options = n["options"].as_array()
+                    .ok_or_else(|| format!("字段 '{}' 无 options", fname))?;
+                let result: Vec<(String, i64)> = options.iter().enumerate().map(|(i, o)| {
+                    let name = o["name"].as_str().unwrap_or("").to_string();
+                    (name, i as i64)
+                }).collect();
+                if !result.is_empty() {
+                    eprintln!("[gh] project {} field '{}' options={:?}", project_id, fname, result.iter().map(|(n,_)| n).collect::<Vec<_>>());
+                    return Ok(result);
+                }
+            }
+        }
+        Err("项目中未找到 Status 字段".to_string())
+    }
+
+    /// 分页拉取单个项目的全部条目，构建 `repo#number -> Status` 映射。
+    fn fetch_project_items(&self, project_id: &str) -> Result<HashMap<String, String>, String> {
         let mut map: HashMap<String, String> = HashMap::new();
         let mut cursor: Option<String> = None;
         for _ in 0..100 {
@@ -381,10 +636,24 @@ impl GitHubClient {
                     let mut status = String::new();
                     if let Some(fvs) = n["fieldValues"]["nodes"].as_array() {
                         for fv in fvs {
-                            if fv["field"]["name"].as_str() == Some("Status") {
-                                if let Some(name) = fv["name"].as_str() {
-                                    status = name.to_string();
+                            let field_name = fv["field"]["name"].as_str().unwrap_or("");
+                            let val_name = fv["name"].as_str().unwrap_or("");
+                            // 通用匹配：字段名含 "Status" 或 "状态"（中英文变体）
+                            if field_name.eq_ignore_ascii_case("Status")
+                                || field_name.contains("tatus")
+                                || field_name.contains("状态")
+                            {
+                                if !val_name.is_empty() {
+                                    status = val_name.to_string();
                                 }
+                            }
+                        }
+                        // 诊断：打印第一个 item 的所有 field name + value
+                        if map.len() < 3 {
+                            for fv in fvs {
+                                let fn_ = fv["field"]["name"].as_str().unwrap_or("?");
+                                let vn_ = fv["name"].as_str().unwrap_or("?");
+                                eprintln!("[gh] project item field='{}' value='{}'", fn_, vn_);
                             }
                         }
                     }
@@ -402,6 +671,143 @@ impl GitHubClient {
             }
         }
         Ok(map)
+    }
+
+    /// 拉取项目中全部 issue 条目的完整信息（title, state, labels, assignees 等），
+    /// 用于发现「项目中有但搜索源未覆盖」的 issue，合并进同步数据。
+    /// 返回 `(status_map, discovered_issues)`。
+    pub fn fetch_project_issues(
+        &self,
+        project_id: &str,
+        org: &str,
+    ) -> Result<(HashMap<String, String>, Vec<RawTask>), String> {
+        let mut status_map: HashMap<String, String> = HashMap::new();
+        let mut issues: Vec<RawTask> = Vec::new();
+        let mut cursor: Option<String> = None;
+        for _ in 0..100 {
+            let after = match &cursor {
+                Some(c) => format!(r#", after:"{}""#, c),
+                None => String::new(),
+            };
+            let q = format!(
+                r#"query {{ node(id:"{pid}") {{ ... on ProjectV2 {{ items(first:50{after}) {{
+                  pageInfo {{ hasNextPage endCursor }}
+                  nodes {{
+                    content {{
+                      ... on Issue {{
+                        number title url state
+                        repository {{ name owner {{ login }} }}
+                        assignees(first:10) {{ nodes {{ login }} }}
+                        labels(first:20) {{ nodes {{ name }} }}
+                        comments {{ totalCount }}
+                      }}
+                      ... on PullRequest {{
+                        number title url state
+                        repository {{ name owner {{ login }} }}
+                      }}
+                    }}
+                    fieldValues(first:20) {{
+                      nodes {{ ... on ProjectV2ItemFieldSingleSelectValue {{
+                        name field {{ ... on ProjectV2SingleSelectField {{ name }} }}
+                      }} }}
+                    }}
+                  }}
+                }} }} }} }}"#,
+                pid = project_id,
+                after = after,
+            );
+            let resp = self.graphql(&q)?;
+            let items = &resp["data"]["node"]["items"];
+            let page_nodes = items["nodes"]
+                .as_array()
+                .ok_or_else(|| "项目条目格式异常".to_string())?;
+            for n in page_nodes {
+                let content = &n["content"];
+                // 跳过 PR
+                if content.get("pull_request").is_some()
+                    || content.get("mergedAt").is_some()
+                    || content.get("headRefOid").is_some()
+                {
+                    continue;
+                }
+                let num = match content["number"].as_i64() {
+                    Some(n) => n,
+                    None => continue,
+                };
+                let repo = match content["repository"]["name"].as_str() {
+                    Some(r) => r.to_string(),
+                    None => continue,
+                };
+                let owner = content["repository"]["owner"]["login"]
+                    .as_str()
+                    .unwrap_or(org);
+                let title = content["title"].as_str().unwrap_or("").to_string();
+                let state = content["state"].as_str().unwrap_or("open").to_string();
+                let _url = content["url"].as_str().unwrap_or("").to_string();
+                let assignees: Vec<String> = content["assignees"]["nodes"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|n| n["login"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let labels: Vec<String> = content["labels"]["nodes"]
+                    .as_array()
+                    .map(|arr| {
+                        arr.iter()
+                            .filter_map(|n| n["name"].as_str().map(String::from))
+                            .collect()
+                    })
+                    .unwrap_or_default();
+                let comments = content["comments"]["totalCount"]
+                    .as_u64()
+                    .unwrap_or(0);
+                let key = format!("{}#{}", repo, num);
+                // 提取 Status 字段值
+                let mut status = String::new();
+                if let Some(fvs) = n["fieldValues"]["nodes"].as_array() {
+                    for fv in fvs {
+                        let field_name = fv["field"]["name"].as_str().unwrap_or("");
+                        let val_name = fv["name"].as_str().unwrap_or("");
+                        if field_name.eq_ignore_ascii_case("Status")
+                            || field_name.contains("tatus")
+                            || field_name.contains("状态")
+                        {
+                            if !val_name.is_empty() {
+                                status = val_name.to_string();
+                            }
+                        }
+                    }
+                }
+                if !status.is_empty() {
+                    status_map.insert(key.clone(), status);
+                }
+                // 用 owner 构造 GitHub 网页 URL（项目条目的 url 是 GraphQL node url，非网页链接）
+                let html_url = format!("https://github.com/{}/{}/issues/{}", owner, repo, num);
+                issues.push(RawTask {
+                    number: num,
+                    title,
+                    url: html_url,
+                    state,
+                    updated_at: String::new(),
+                    repo,
+                    repo_owner: owner.to_string(),
+                    assignees,
+                    labels,
+                    comments,
+                    is_pr: false,
+                });
+            }
+            if items["pageInfo"]["hasNextPage"].as_bool() == Some(true) {
+                cursor = items["pageInfo"]["endCursor"]
+                    .as_str()
+                    .map(|s| s.to_string());
+            } else {
+                break;
+            }
+        }
+        Ok((status_map, issues))
     }
 
     // ===== 私有方法 =====
@@ -490,27 +896,82 @@ impl GitHubClient {
     }
 
     /// Search API 调用的统一入口：单页结果（自动投影）。
+    ///
+    /// 对于 422 Validation Failed（限定词引用不可访问资源），返回空结果并记录警告，
+    /// 由调用方的 best-effort 合并逻辑降级处理，避免单个数据源失败导致整次同步中断。
     fn search(&self, q: &str) -> Result<Vec<RawTask>, String> {
-        // search/issues?q=...&per_page=100
         let encoded = urlencode(q);
-        let url = format!(
-            "https://api.github.com/{}?q={}&per_page=100",
-            SEARCH_PATH, encoded
-        );
-        let v = self.get(&url)?;
-        let items = v
-            .get("items")
-            .and_then(|i| i.as_array())
-            .ok_or_else(|| "search 响应无 items 数组".to_string())?;
-        items
-            .iter()
-            .map(RawTask::from_item)
-            .collect::<Result<Vec<RawTask>, String>>()
-            .map_err(|e| format!("解析 search 返回失败: {}", e))
+        let mut all = Vec::new();
+        // GitHub Search API：每页最多100，总计最多1000 → 最多10页
+        for page in 1..=10 {
+            let url = format!(
+                "https://api.github.com/{}?q={}&per_page=100&page={}",
+                SEARCH_PATH, encoded, page
+            );
+            let resp = self.http_get(&url)?;
+            let status = resp.status();
+
+            if status.as_u16() == 422 {
+                let body = resp.text().unwrap_or_default();
+                eprintln!("[sync] Search API 422: {} - {}", q, body.chars().take(120).collect::<String>());
+                break;
+            }
+            if status.as_u16() == 429 || status.as_u16() == 403 {
+                let retry_after = resp
+                    .headers()
+                    .get("Retry-After")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<u64>().ok())
+                    .or_else(|| self.seconds_until_reset(resp.headers()))
+                    .unwrap_or(10);
+                let wait_ms = (retry_after * 1000).min(MAX_BACKOFF_MS);
+                eprintln!("[gh] 限流（{}），等待 {}ms 后重试", status.as_u16(), wait_ms);
+                std::thread::sleep(Duration::from_millis(wait_ms));
+                let resp2 = self.http_get(&url)?;
+                let status2 = resp2.status();
+                if status2.as_u16() == 422 || !status2.is_success() {
+                    let body = resp2.text().unwrap_or_default();
+                    eprintln!("[sync] Search API 重试失败 ({}): {}", status2.as_u16(), body.chars().take(120).collect::<String>());
+                    break;
+                }
+                let v = resp2.json::<serde_json::Value>().map_err(|e| e.to_string())?;
+                let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+                if items.is_empty() { break; }
+                for item in &items {
+                    all.push(RawTask::from_item(item)?);
+                }
+                continue;
+            }
+            if !status.is_success() {
+                let body = resp.text().unwrap_or_default();
+                return Err(format!("GitHub API 错误 ({}): {}", status.as_u16(), body.chars().take(160).collect::<String>()));
+            }
+            let v = resp.json::<serde_json::Value>().map_err(|e| e.to_string())?;
+            let items = v.get("items").and_then(|i| i.as_array()).cloned().unwrap_or_default();
+            if items.is_empty() { break; }
+            for item in &items {
+                all.push(RawTask::from_item(item)?);
+            }
+            // 如果返回的条数少于100，说明已经是最后一页
+            if items.len() < 100 { break; }
+        }
+        Ok(all)
+    }
+
+    /// 带认证的 HTTP GET（复用连接池）。
+    fn http_get(&self, url: &str) -> Result<reqwest::blocking::Response, String> {
+        self.http
+            .get(url)
+            .header("Authorization", format!("Bearer {}", self.pat))
+            .header("Accept", "application/vnd.github+json")
+            .header("X-GitHub-Api-Version", "2022-11-28")
+            .timeout(Duration::from_secs(self.http_timeout()))
+            .send()
+            .map_err(|e| format!("网络请求失败: {}", e))
     }
 
     /// GraphQL POST：把 query 直接放进 JSON body。
-    fn graphql(&self, query: &str) -> Result<serde_json::Value, String> {
+    pub fn graphql(&self, query: &str) -> Result<serde_json::Value, String> {
         let url = "https://api.github.com/graphql";
         let body = serde_json::json!({ "query": query });
         let resp = self

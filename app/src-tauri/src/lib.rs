@@ -219,6 +219,17 @@ pub fn run() {
             // v0.3.19+：关于页面 —— 当前版本号 + 检查更新。
             commands::get_app_version,
             commands::check_latest_release,
+            // v0.3.20+：Label→Status 映射管理。
+            commands::list_label_mappings,
+            commands::upsert_label_mapping,
+            commands::delete_label_mapping,
+            // v0.3.21+：Label 列视图 + 看板模式切换。
+            commands::get_label_columns_for_account,
+            commands::set_board_mode,
+            // v0.3.22+：Project Status 诊断。
+            commands::diagnose_project_status,
+            commands::list_projects,
+            commands::list_project_statuses,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");

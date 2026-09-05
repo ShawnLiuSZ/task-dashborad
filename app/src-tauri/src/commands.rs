@@ -3,7 +3,7 @@ use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
-use crate::db::Account;
+use crate::db::{Account, LabelMapping, LabelMappingInput};
 use crate::sync::SyncResult;
 use crate::AppState;
 
@@ -459,15 +459,22 @@ pub async fn device_login_poll(
             }),
             crate::oauth::PollOutcome::Success(token) => {
                 // 探测真实 login（token 有效才继续）。
-                let login = crate::github::GitHubClient::new(
+                let probe_client = crate::github::GitHubClient::new(
                     token.clone(),
                     String::new(),
                     String::new(),
-                )
-                .and_then(|c| c.test_connection())
-                .map_err(|e| format!("授权成功但探测账号失败: {}", e))?
-                .login;
-                // 建账号：同 login 已存在则更新 PAT（重新授权场景），否则插入。
+                )?;
+                let login = probe_client
+                    .test_connection()
+                    .map_err(|e| format!("授权成功但探测账号失败: {}", e))?
+                    .login;
+                // 若调用方未指定 org，自动从 GitHub API 获取用户所属的第一个组织。
+                let final_org = if org.trim().is_empty() {
+                    probe_client.fetch_user_org().unwrap_or_default()
+                } else {
+                    org.trim().to_string()
+                };
+                // 建账号：同 login 已存在则更新 PAT + org（重新授权场景），否则插入。
                 let conn = state.db.lock().map_err(|e| e.to_string())?;
                 let existing: Option<i64> = {
                     let mut stmt = conn
@@ -477,7 +484,9 @@ pub async fn device_login_poll(
                 };
                 let account_id = match existing {
                     Some(id) => {
-                        crate::db::update_account(&conn, id, None, None, None, Some(&token))?;
+                        // 更新 PAT 和 org（org 非空时覆盖，空时不改）
+                        let org_opt = if final_org.is_empty() { None } else { Some(final_org.as_str()) };
+                        crate::db::update_account(&conn, id, None, None, org_opt, Some(&token))?;
                         id
                     }
                     None => {
@@ -486,7 +495,7 @@ pub async fn device_login_poll(
                         } else {
                             label.trim().to_string()
                         };
-                        crate::db::insert_account(&conn, &final_label, &login, org.trim(), &token)?
+                        crate::db::insert_account(&conn, &final_label, &login, &final_org, &token)?
                     }
                 };
                 // 新账号若是首个，把 active 拨过去（与 add_account 行为一致）。
@@ -539,9 +548,10 @@ pub fn add_account(
     if pat.is_empty() {
         return Err("PAT 不能为空".to_string());
     }
-    // 锁外探测（避免阻塞 db 锁做网络 IO）；构造 + 探测真实 login。
-    let probe_login = crate::github::GitHubClient::new(pat.clone(), String::new(), String::new())
-        .and_then(|c| c.test_connection())
+    // 锁外探测（避免阻塞 db 锁做网络 IO）；构造 + 探测真实 login + org。
+    let probe_client = crate::github::GitHubClient::new(pat.clone(), String::new(), String::new())?;
+    let probe_login = probe_client
+        .test_connection()
         .map(|r| r.login)
         .map_err(|e| format!("PAT 验证失败: {}", e))?;
     // 用探测到的真实 login 作权威；用户输入的 login 仅作 hint。
@@ -550,8 +560,14 @@ pub fn add_account(
     } else {
         probe_login
     };
+    // 若调用方未指定 org，自动从 GitHub API 获取用户所属的第一个组织。
+    let final_org = if org.trim().is_empty() {
+        probe_client.fetch_user_org().unwrap_or_default()
+    } else {
+        org.trim().to_string()
+    };
     let conn = state.db.lock().map_err(|e| e.to_string())?;
-    let id = crate::db::insert_account(&conn, &label, &final_login, &org, &pat)?;
+    let id = crate::db::insert_account(&conn, &label, &final_login, &final_org, &pat)?;
     // 若这是首个账号，把 active_account_id 拨到它。
     let active: i64 = crate::db::get_setting(&conn, "active_account_id")
         .parse()
@@ -682,6 +698,17 @@ pub fn set_view_mode(state: State<'_, AppState>, mode: String) -> Result<(), Str
     Ok(())
 }
 
+/// 设置看板列模式：'status' / 'label'。
+#[tauri::command]
+pub fn set_board_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
+    if mode != "status" && mode != "label" {
+        return Err(format!("非法看板模式: {mode}（应为 status / label）"));
+    }
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::set_setting(&conn, "board_mode", &mode)?;
+    Ok(())
+}
+
 // ============================================================================
 // v0.3.19+：关于页面 —— 当前版本号 + 检查更新（GitHub Releases）
 // ============================================================================
@@ -750,4 +777,137 @@ pub async fn check_latest_release() -> Result<CheckUpdate, String> {
     })
     .await
     .map_err(|e| format!("检查更新线程异常: {e}"))?
+}
+
+// ============================================================================
+// v0.3.20+：Label→Status 映射管理
+// ============================================================================
+
+/// 列出所有 label 映射。
+#[tauri::command]
+pub fn list_label_mappings(state: State<'_, AppState>) -> Result<Vec<LabelMapping>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::list_label_mappings(&conn)
+}
+
+/// 新增或更新一条 label 映射。
+#[tauri::command]
+pub fn upsert_label_mapping(
+    state: State<'_, AppState>,
+    org: String,
+    repo: String,
+    label: String,
+    status: String,
+    order_index: i64,
+) -> Result<LabelMapping, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let id = crate::db::upsert_label_mapping(
+        &conn,
+        &LabelMappingInput { org, repo, label, status, order_index },
+    )?;
+    // 返回完整对象
+    let mut stmt = conn
+        .prepare("SELECT id, org, repo, label, status, order_index, created_at, updated_at FROM label_mappings WHERE id = ?1")
+        .map_err(|e| e.to_string())?;
+    let mapping = stmt
+        .query_row([id], |r| {
+            Ok(LabelMapping {
+                id: r.get(0)?,
+                org: r.get(1)?,
+                repo: r.get(2)?,
+                label: r.get(3)?,
+                status: r.get(4)?,
+                order_index: r.get(5)?,
+                created_at: r.get(6)?,
+                updated_at: r.get(7)?,
+            })
+        })
+        .map_err(|e| e.to_string())?;
+    Ok(mapping)
+}
+
+/// 删除一条 label 映射。
+#[tauri::command]
+pub fn delete_label_mapping(state: State<'_, AppState>, id: i64) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::delete_label_mapping(&conn, id)
+}
+
+/// 获取某账号的 Label 列视图配置（按 order_index 排序）。
+/// 用于前端 Label 列模式动态生成列。
+#[tauri::command]
+pub fn get_label_columns_for_account(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<Vec<LabelMapping>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::get_label_columns_for_account(&conn, account_id)
+}
+
+/// 诊断：测试当前账号的 Project Status 拉取（用于排查 "未标注" 问题）。
+#[tauri::command]
+pub fn diagnose_project_status(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<serde_json::Value, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let (login, org, pat) = crate::db::get_account_pat(&conn, account_id)?;
+    drop(conn);
+
+    if pat.is_empty() {
+        return Err("账号未配置 PAT".to_string());
+    }
+    let client = crate::github::GitHubClient::new(pat, login.clone(), org.clone())?;
+
+    // 1. 拉取全部 project
+    let all_projects = client.fetch_all_projects()?;
+    let project_ids: Vec<String> = all_projects.iter().map(|p| p.0.clone()).collect();
+
+    // 2. 用所有 project 拉取 status
+    let status_map = client.fetch_project_status(&project_ids)?;
+
+    // 3. 查询每个 project 的字段定义（诊断用）
+    let mut projects_info = Vec::new();
+    for (id, name, num, owner) in &all_projects {
+        let fields_q = format!(
+            r#"query {{ node(id:"{id}") {{ ... on ProjectV2 {{ fields(first:20) {{ nodes {{ ... on ProjectV2SingleSelectField {{ name options {{ name }} }} ... on ProjectV2IterationField {{ name }} ... on ProjectV2NumberField {{ name }} }} }} }} }} }}"#,
+            id = id
+        );
+        let fields: Vec<String> = client.graphql(&fields_q)
+            .ok()
+            .and_then(|v| v["data"]["node"]["fields"]["nodes"].as_array().cloned())
+            .unwrap_or_default()
+            .iter()
+            .filter_map(|n| n["name"].as_str().map(|s| s.to_string()))
+            .collect();
+        projects_info.push(serde_json::json!({
+            "github_id": id,
+            "name": name,
+            "number_of_items": num,
+            "owner_type": owner,
+            "fields": fields,
+        }));
+    }
+
+    Ok(serde_json::json!({
+        "org": org,
+        "login": login,
+        "projects": projects_info,
+        "status_count": status_map.len(),
+        "sample_statuses": status_map.iter().take(10).collect::<Vec<_>>(),
+    }))
+}
+
+/// 列出某账号下已存储的项目（来自 projects 表）。
+#[tauri::command]
+pub fn list_projects(state: State<'_, AppState>, account_id: i64) -> Result<Vec<crate::db::Project>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::list_projects(&conn, account_id)
+}
+
+/// 列出某账号下所有项目的 Status 选项（来自 project_statuses 表）。
+#[tauri::command]
+pub fn list_project_statuses(state: State<'_, AppState>, account_id: i64) -> Result<Vec<crate::db::ProjectStatus>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::list_project_statuses(&conn, account_id)
 }

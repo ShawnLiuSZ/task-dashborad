@@ -2,10 +2,15 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Account,
+  BoardMode,
   CheckUpdate,
   DeviceLoginPoll,
   DeviceLoginStart,
+  LabelMapping,
+  LabelMappingInput,
   PatStatus,
+  Project,
+  ProjectStatus,
   Settings,
   SyncResult,
   Task,
@@ -65,6 +70,28 @@ export const api = {
   getAppVersion: () => invoke<string>("get_app_version"),
   checkLatestRelease: () =>
     invoke<CheckUpdate>("check_latest_release"),
+  // v0.3.20+：Label→Status 映射管理。
+  listLabelMappings: () => invoke<LabelMapping[]>("list_label_mappings"),
+  upsertLabelMapping: (input: LabelMappingInput) =>
+    invoke<LabelMapping>("upsert_label_mapping", {
+      org: input.org,
+      repo: input.repo,
+      label: input.label,
+      status: input.status,
+      orderIndex: input.orderIndex,
+    }),
+  deleteLabelMapping: (id: number) => invoke<void>("delete_label_mapping", { id }),
+  // v0.3.21+：看板列模式切换 + Label 列视图配置。
+  setBoardMode: (mode: BoardMode) => invoke<void>("set_board_mode", { mode }),
+  getLabelColumnsForAccount: (accountId: number) =>
+    invoke<LabelMapping[]>("get_label_columns_for_account", { accountId }),
+  // v0.3.22+：Project Status 诊断。
+  diagnoseProjectStatus: (accountId: number) =>
+    invoke<any>("diagnose_project_status", { accountId }),
+  listProjects: (accountId: number) =>
+    invoke<Project[]>("list_projects", { accountId }),
+  listProjectStatuses: (accountId: number) =>
+    invoke<ProjectStatus[]>("list_project_statuses", { accountId }),
 };
 
 export function onSynced(cb: (r: SyncResult) => void) {
