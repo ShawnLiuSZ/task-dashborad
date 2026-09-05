@@ -6,6 +6,34 @@
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
 
+- **v0.3.23（2026-09-05）— 同步日志功能（#27）**
+
+  - 需求：同步操作（定时/手动）执行后，用户无法查看同步历史和错误详情，难以排查「部分账号失败 / 422」等问题。
+
+  - 改动：
+
+    - `db.rs`：新增 `sync_logs` 表（account_id, trigger_type, started_at, finished_at, status, added/updated/removed/candidate_done/pruned 计数, failed_sources, error_message），自动创建表和索引。
+
+    - `sync.rs`：同步开始时为每个目标账号插入日志，同步完成时更新日志状态和统计数据；每次同步后自动清理超过 7 天的旧日志。
+
+    - `commands.rs`：新增 `list_sync_logs`（列出同步日志）和 `prune_sync_logs`（清理过期日志）两个 Tauri 命令。
+
+    - `lib.rs`：注册新命令。
+
+    - `types.ts`：新增 `SyncLog` 类型。
+
+    - `api.ts`：新增 `listSyncLogs` 和 `pruneSyncLogs` API 调用。
+
+    - `SyncLogsPanel.tsx`：新建同步日志面板组件，展示最近 100 条同步记录（时间、触发方式、耗时、状态、新增/更新/移除数量、错误信息），支持手动清理过期日志。
+
+    - `App.tsx`：顶栏新增「同步日志」按钮。
+
+    - `styles.css`：新增同步日志面板样式。
+
+  - 验证：`cargo check` 通过；`npx tsc --noEmit` 通过；`npm run tauri build` 编译成功。
+
+  - 知识库文档：[`docs/issue-27-sync-logs.md`](./issue-27-sync-logs.md)
+
 - **v0.3.19（2026-09-05）— 关于页面 + 检查更新（#21）**
 
   - 背景：应用内缺少版本显示与更新入口，用户无法了解当前版本或触发升级。
