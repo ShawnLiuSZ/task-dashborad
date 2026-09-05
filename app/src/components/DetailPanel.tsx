@@ -101,7 +101,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           {t(`ownership.${task.ownership}`)}
         </span>
         {task.candidateDone && <span className="candidate-tag">{t("detail.closedPending")}</span>}
-        <span className="muted small">{t("detail.updatedAt", { time: task.updatedAt ?? "—" })}</span>
+        <span className="muted small">{t("detail.updatedAt", { time: fmtTime(task.updatedAt, lang) })}</span>
       </div>
 
       <section className="detail-block">
