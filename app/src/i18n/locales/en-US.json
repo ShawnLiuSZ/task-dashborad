@@ -9,6 +9,7 @@
   "topbar.totalCount": "{n} tasks",
   "topbar.lastSync": "Last sync {time}",
   "btn.settings": "Settings",
+  "btn.about": "About",
   "btn.syncing": "Syncing…",
   "btn.syncNow": "Sync now",
   "btn.reset": "Reset",
