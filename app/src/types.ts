@@ -105,6 +105,20 @@ export interface DeviceLoginPoll {
   message: string;
 }
 
+/** v0.3.19+：「检查更新」命令返回值。 */
+export interface CheckUpdate {
+  /** 当前版本（来自后端 Cargo 包版本）。 */
+  current: string;
+  /** GitHub 最新 release 版本号（去 `v` 前缀）。 */
+  latest: string;
+  /** 当前是否已是最新。 */
+  upToDate: boolean;
+  /** 最新 release 页面地址。 */
+  url: string;
+  /** 非空表示检查失败。 */
+  error: string;
+}
+
 /**
  * 四态列定义。label / hint 走 i18n：status.{key} / hint.{key}
  * （Issue #7 起不再硬编码中文文案）。

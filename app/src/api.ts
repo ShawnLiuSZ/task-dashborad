@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Account,
+  CheckUpdate,
   DeviceLoginPoll,
   DeviceLoginStart,
   PatStatus,
@@ -60,6 +61,10 @@ export const api = {
     invoke<DeviceLoginStart>("device_login_start", { clientId }),
   deviceLoginPoll: (clientId: string, deviceCode: string, org: string, label: string) =>
     invoke<DeviceLoginPoll>("device_login_poll", { clientId, deviceCode, org, label }),
+  // v0.3.19+：关于页面 —— 当前版本 + 检查更新。
+  getAppVersion: () => invoke<string>("get_app_version"),
+  checkLatestRelease: () =>
+    invoke<CheckUpdate>("check_latest_release"),
 };
 
 export function onSynced(cb: (r: SyncResult) => void) {

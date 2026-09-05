@@ -113,5 +113,16 @@
   "settings.language": "Interface language",
   "settings.langAuto": "Follow system",
   "settings.langZh": "简体中文",
-  "settings.langEn": "English"
+  "settings.langEn": "English",
+  "btn.about": "About",
+  "about.title": "About TaskBoard",
+  "about.versionLabel": "Current version",
+  "about.checkUpdate": "Check for Updates",
+  "about.checking": "Checking…",
+  "about.upToDate": "You are up to date",
+  "about.updateAvailable": "New version {latest} available (current: {current})",
+  "about.download": "Go to download",
+  "about.error": "Update check failed: {error}",
+  "about.localData": "Data stays in local SQLite and is never written back to GitHub",
+  "about.repoPath": "Repo: ShawnLiuSZ/task-dashborad"
 }

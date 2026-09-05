@@ -792,6 +792,35 @@ body {
   margin-top: 4px;
 }
 
+/* ===== v0.3.19+ 关于页 ============================================ */
+
+.about-modal .about-status {
+  margin-top: 14px;
+  padding: 10px 12px;
+  border-radius: 8px;
+  font-size: 12px;
+  background: var(--bg);
+  color: var(--text-2);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.about-modal .about-status.up-to-date {
+  color: #1a7f37;
+  background: #eaf6ec;
+}
+
+.about-modal .about-status.has-update {
+  color: #9a6700;
+  background: #fff8c5;
+}
+
+.about-modal .about-status.error {
+  color: #cf222e;
+  background: #ffebe9;
+}
+
 /* ===== v0.3.17+ 账号管理 + Device Flow 登录 ======================== */
 
 .account-list {

@@ -9,6 +9,7 @@
   "topbar.totalCount": "共 {n} 条",
   "topbar.lastSync": "上次同步 {time}",
   "btn.settings": "设置",
+  "btn.about": "关于",
   "btn.syncing": "同步中…",
   "btn.syncNow": "立即同步",
   "btn.reset": "重置",
@@ -113,5 +114,15 @@
   "settings.language": "界面语言",
   "settings.langAuto": "跟随系统",
   "settings.langZh": "简体中文",
-  "settings.langEn": "English"
+  "settings.langEn": "English",
+  "about.title": "关于 TaskBoard",
+  "about.versionLabel": "当前版本",
+  "about.checkUpdate": "检查更新",
+  "about.checking": "检查中…",
+  "about.upToDate": "已是最新版本",
+  "about.updateAvailable": "发现新版本 {latest}，当前为 {current}",
+  "about.download": "前往下载",
+  "about.error": "检查更新失败：{error}",
+  "about.localData": "数据存本地 SQLite，绝不写回 GitHub",
+  "about.repoPath": "应用仓库：ShawnLiuSZ/task-dashborad"
 }
