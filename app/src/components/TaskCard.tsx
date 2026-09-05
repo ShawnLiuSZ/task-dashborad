@@ -55,7 +55,7 @@ export default function TaskCard({ task, accountLabel, active, onClick, repoInde
             ★
           </span>
         )}
-        {/* GitHub Issue 状态：仅 closed 显示 */}
+{/* GitHub Issue 状态：仅 closed 显示 */}
         {task.ghState === "closed" && (
           <span className="gh-state gh-state-closed" title={t("card.ghState.closed")}>
             {t("card.ghState.closed")}

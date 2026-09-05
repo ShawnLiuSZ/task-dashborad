@@ -108,7 +108,6 @@ export const api = {
     invoke<Note>("update_note_label", { id, label }),
   deleteNote: (id: number) => invoke<void>("delete_note", { id }),
 };
-
 export function onSynced(cb: (r: SyncResult) => void) {
   return listen<SyncResult>(SYNCED_EVENT, (e) => cb(e.payload));
 }

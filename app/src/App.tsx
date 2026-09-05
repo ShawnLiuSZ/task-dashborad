@@ -17,7 +17,6 @@ export default function App() {
     </I18nProvider>
   );
 }
-
 function BoardApp() {
   const { lang, t } = useI18n();
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -202,7 +201,7 @@ function BoardApp() {
           <span className="muted small">
             {t("topbar.lastSync", { time: fmtTime(settings?.lastSyncAt ?? 0, lang) })}
           </span>
-          <button className="btn" onClick={() => setActiveModal(activeModal === "about" ? null : "about")} title={t("btn.about")}>
+<button className="btn" onClick={() => setActiveModal(activeModal === "about" ? null : "about")} title={t("btn.about")}>
             <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
             <span className="btn-label">{t("btn.about")}</span>
           </button>
@@ -347,7 +346,7 @@ function BoardApp() {
         />
       )}
 
-      {activeModal === "about" && (
+{activeModal === "about" && (
         <AboutPanel
           onClose={() => setActiveModal(null)}
         />
