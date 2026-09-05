@@ -98,7 +98,7 @@
   "settings.clickCopy": "点击复制",
   "settings.reopenAuth": "重新打开授权页",
   "settings.cancelLogin": "取消登录",
-  "settings.waitingAuth": "等待授权中…（{n} 分钟内有效）",
+  "settings.waitingAuth": "等待授权中…（{time} 内有效）",
   "settings.loginSuccess": "登录成功 · 已授权 @{login}",
   "settings.loginFailed": "登录失败，请重试",
   "settings.accountsHint": "顶栏下拉切换激活账号；视图模式「全部账号」可聚合查看所有账号任务。token 明文存入本地 SQLite——后续计划升级为系统 keyring。",

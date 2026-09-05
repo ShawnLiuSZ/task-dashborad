@@ -98,7 +98,7 @@
   "settings.clickCopy": "Click to copy",
   "settings.reopenAuth": "Reopen authorization page",
   "settings.cancelLogin": "Cancel sign-in",
-  "settings.waitingAuth": "Waiting for authorization… (valid for {n} minutes)",
+  "settings.waitingAuth": "Waiting for authorization… (valid for {time})",
   "settings.loginSuccess": "Signed in · authorized @{login}",
   "settings.loginFailed": "Sign-in failed, please retry",
   "settings.accountsHint": "Switch the active account from the top-bar dropdown; \"All accounts\" view aggregates tasks across accounts. Tokens are stored in plain text in local SQLite — a system keyring upgrade is planned.",
