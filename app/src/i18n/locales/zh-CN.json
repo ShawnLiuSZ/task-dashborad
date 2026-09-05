@@ -13,6 +13,7 @@
   "btn.about": "关于",
   "btn.syncing": "同步中…",
   "btn.syncNow": "立即同步",
+  "syncLogs.title": "同步日志",
   "btn.reset": "重置",
   "btn.close": "关闭",
   "btn.record": "记录",

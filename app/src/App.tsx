@@ -24,9 +24,8 @@ function BoardApp() {
   const [selected, setSelected] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState<SettingsT | null>(null);
-  const [activeModal, setActiveModal] = useState<"settings" | "about" | null>(null);
-  const [showAccounts, setShowAccounts] = useState(false);
-  const [showSyncLogs, setShowSyncLogs] = useState(false);
+  // 互斥弹窗状态：同一时刻仅显示一个（设置/关于/账号/同步日志）。
+  const [activeModal, setActiveModal] = useState<"settings" | "about" | "accounts" | "synclogs" | null>(null);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
   const [repo, setRepo] = useState("");
@@ -170,71 +169,31 @@ function BoardApp() {
     }
   };
 
-  // v0.3.16+：切换视图模式（single/all）。
-  const handleSwitchView = async (mode: "single" | "all") => {
-    setError(null);
-    try {
-      await api.setViewMode(mode);
-      await loadSettings();
-      await load();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   const selectedTask = tasks.find((t) => t.key === selected) ?? null;
-
-  // v0.3.16+：当前激活账号对象（用于顶栏显示）。
-  const activeAccount = useMemo(
-    () =>
-      settings?.accounts.find((a) => a.id === settings.activeAccountId) ??
-      null,
-    [settings],
-  );
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          <span className="brand">TaskBoard</span>
-          {/* v0.3.16+：账号下拉 + 视图模式切换。 */}
+          {/* v0.3.16+：账号下拉。v0.3.x：暂隐藏「全部账号」视图模式，
+              待 project status map 功能落地后再恢复。 */}
           <select
             className="select"
-            value={settings?.viewMode ?? "single"}
-            onChange={(e) =>
-              void handleSwitchView(e.target.value as "single" | "all")
-            }
-            title={t("topbar.viewModeTitle")}
+            value={settings?.activeAccountId ?? 0}
+            onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
+            title={t("topbar.switchAccount")}
           >
-            <option value="single">{t("topbar.singleAccount")}</option>
-            <option value="all">{t("topbar.allAccounts")}</option>
+            {(settings?.accounts ?? []).length === 0 && (
+              <option value={0}>{t("topbar.noAccounts")}</option>
+            )}
+            {(settings?.accounts ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                @{a.login}
+                {a.org ? ` (${a.org})` : ""}
+              </option>
+            ))}
           </select>
-          {settings?.viewMode === "single" && (
-            <select
-              className="select"
-              value={settings?.activeAccountId ?? 0}
-              onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
-              title={t("topbar.switchAccount")}
-            >
-              {(settings?.accounts ?? []).length === 0 && (
-                <option value={0}>{t("topbar.noAccounts")}</option>
-              )}
-              {(settings?.accounts ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  {a.label} (@{a.login})
-                </option>
-              ))}
-            </select>
-          )}
           <span className="muted">
-            {activeAccount
-              ? activeAccount.org
-                ? `${activeAccount.login} @ ${activeAccount.org}`
-                : activeAccount.login
-              : settings?.hasPat === false
-                ? t("topbar.noPat")
-                : t("topbar.notLoggedIn")}
-            {" · "}
             {t("topbar.totalCount", { n: visible.length })}
           </span>
         </div>
@@ -243,20 +202,25 @@ function BoardApp() {
           <span className="muted small">
             {t("topbar.lastSync", { time: fmtTime(settings?.lastSyncAt ?? 0, lang) })}
           </span>
-          <button className="btn" onClick={() => setActiveModal(activeModal === "about" ? null : "about")}>
-            {t("btn.about")}
+          <button className="btn" onClick={() => setActiveModal(activeModal === "about" ? null : "about")} title={t("btn.about")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="10"/><path d="M12 16v-4"/><path d="M12 8h.01"/></svg>
+            <span className="btn-label">{t("btn.about")}</span>
           </button>
-          <button className="btn" onClick={() => setActiveModal(activeModal === "settings" ? null : "settings")}>
-            {t("btn.settings")}
+          <button className="btn" onClick={() => setActiveModal(activeModal === "settings" ? null : "settings")} title={t("btn.settings")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M12 15a3 3 0 1 0 0-6 3 3 0 0 0 0 6Z"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 1 1-2.83 2.83l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 1 1-4 0v-.09a1.65 1.65 0 0 0-1-1.51 1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 1 1-2.83-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 1 1 0-4h.09a1.65 1.65 0 0 0 1.51-1 1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 1 1 2.83-2.83l.06.06a1.65 1.65 0 0 0 1.82.33h.01a1.65 1.65 0 0 0 1-1.51V3a2 2 0 1 1 4 0v.09a1.65 1.65 0 0 0 1 1.51h.01a1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 1 1 2.83 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82v.01a1.65 1.65 0 0 0 1.51 1H21a2 2 0 1 1 0 4h-.09a1.65 1.65 0 0 0-1.51 1Z"/></svg>
+            <span className="btn-label">{t("btn.settings")}</span>
           </button>
-          <button className="btn" onClick={() => setShowAccounts(true)}>
-            {t("btn.accounts")}
+          <button className="btn" onClick={() => setActiveModal(activeModal === "accounts" ? null : "accounts")} title={t("btn.accounts")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+            <span className="btn-label">{t("btn.accounts")}</span>
           </button>
-          <button className="btn" onClick={() => setShowSyncLogs(true)}>
-            同步日志
+          <button className="btn" onClick={() => setActiveModal(activeModal === "synclogs" ? null : "synclogs")} title={t("syncLogs.title")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8Z"/><path d="M14 2v6h6"/><path d="M16 13H8"/><path d="M16 17H8"/><path d="M10 9H8"/></svg>
+            <span className="btn-label">{t("syncLogs.title")}</span>
           </button>
-          <button className="btn primary" onClick={doSync} disabled={syncing}>
-            {syncing ? t("btn.syncing") : t("btn.syncNow")}
+          <button className="btn primary" onClick={doSync} disabled={syncing} title={syncing ? t("btn.syncing") : t("btn.syncNow")}>
+            <svg className="btn-icon" viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg>
+            <span className="btn-label">{syncing ? t("btn.syncing") : t("btn.syncNow")}</span>
           </button>
         </div>
       </header>
@@ -373,10 +337,10 @@ function BoardApp() {
         />
       )}
 
-      {showAccounts && settings && (
+      {activeModal === "accounts" && settings && (
         <AccountsPanel
           settings={settings}
-          onClose={() => setShowAccounts(false)}
+          onClose={() => setActiveModal(null)}
           onAccountsChanged={() => {
             void loadSettings();
           }}
@@ -389,9 +353,9 @@ function BoardApp() {
         />
       )}
 
-      {showSyncLogs && (
+      {activeModal === "synclogs" && (
         <SyncLogsPanel
-          onClose={() => setShowSyncLogs(false)}
+          onClose={() => setActiveModal(null)}
         />
       )}
     </div>

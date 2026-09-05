@@ -94,6 +94,26 @@ body {
   gap: 10px;
 }
 
+/* 左侧/右侧按钮组禁止折行（窗口过窄时触发整窗横向滚动）。 */
+.topbar-left,
+.topbar-right {
+  flex-wrap: nowrap;
+  white-space: nowrap;
+  flex: 0 0 auto;
+}
+
+/* 顶部栏按钮内联图标：默认与文字同排，窄窗口下隐藏文字仅留图标。 */
+.btn .btn-icon {
+  flex: 0 0 auto;
+}
+
+/* 窗口过窄时，顶部栏「关于/设置/账号/同步日志/立即同步」只显示图标。 */
+@media (max-width: 1100px) {
+  .topbar-right .btn-label {
+    display: none;
+  }
+}
+
 .toolbar {
   display: flex;
   align-items: center;
@@ -115,11 +135,6 @@ body {
 
 .toolbar .select {
   flex: 0 0 auto;
-}
-
-.brand {
-  font-size: 14px;
-  font-weight: 500;
 }
 
 .banner-row {
@@ -830,6 +845,9 @@ body {
 }
 
 .btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   border: 0.5px solid var(--border-strong);
   background: transparent;
   color: var(--text);
@@ -905,6 +923,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 高于 topbar/toolbar（z-index:5），矮窗口下弹窗顶栏不被搜索栏压住。 */
+  z-index: 20;
 }
 
 .modal {
@@ -912,6 +932,9 @@ body {
   background: var(--surface);
   border-radius: 12px;
   padding: 18px 20px;
+  /* 弹窗适配窗口高度：超高时内部出现 Y 轴滚动，避免标题/底部被截。 */
+  max-height: calc(100% - 48px);
+  overflow-y: auto;
 }
 
 .modal-title {
