@@ -911,3 +911,23 @@ pub fn list_project_statuses(state: State<'_, AppState>, account_id: i64) -> Res
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::db::list_project_statuses(&conn, account_id)
 }
+
+// ============================================================================
+// v0.3.23+：同步日志管理
+// ============================================================================
+
+/// 列出同步日志（最近 N 条），按 created_at 降序。
+#[tauri::command]
+pub fn list_sync_logs(state: State<'_, AppState>, limit: Option<i64>) -> Result<Vec<crate::db::SyncLog>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let limit = limit.unwrap_or(50).max(1).min(500);
+    crate::db::list_sync_logs(&conn, limit)
+}
+
+/// 清理超过 7 天的同步日志。
+#[tauri::command]
+pub fn prune_sync_logs(state: State<'_, AppState>) -> Result<usize, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = crate::sync::now_secs();
+    crate::db::prune_sync_logs(&conn, now)
+}

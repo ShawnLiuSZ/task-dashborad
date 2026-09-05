@@ -12,6 +12,7 @@ import type {
   Project,
   ProjectStatus,
   Settings,
+  SyncLog,
   SyncResult,
   Task,
   ViewMode,
@@ -92,6 +93,10 @@ export const api = {
     invoke<Project[]>("list_projects", { accountId }),
   listProjectStatuses: (accountId: number) =>
     invoke<ProjectStatus[]>("list_project_statuses", { accountId }),
+  // v0.3.23+：同步日志管理。
+  listSyncLogs: (limit?: number) =>
+    invoke<SyncLog[]>("list_sync_logs", { limit: limit ?? 50 }),
+  pruneSyncLogs: () => invoke<number>("prune_sync_logs"),
 };
 
 export function onSynced(cb: (r: SyncResult) => void) {

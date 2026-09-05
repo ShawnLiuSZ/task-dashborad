@@ -175,6 +175,24 @@ export interface LabelColumnConfig {
   mapping?: LabelMapping;
 }
 
+/** v0.3.23+：同步日志记录。 */
+export interface SyncLog {
+  id: number;
+  accountId: number;
+  triggerType: string;
+  startedAt: number;
+  finishedAt: number;
+  status: string;
+  added: number;
+  updated: number;
+  removed: number;
+  candidateDone: number;
+  pruned: number;
+  failedSources: string;
+  errorMessage: string;
+  createdAt: number;
+}
+
 /**
  * 四态列定义。label / hint 走 i18n：status.{key} / hint.{key}
  * （Issue #7 起不再硬编码中文文案）。

@@ -551,6 +551,14 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
     }
 
     let now = now_secs();
+    // v0.3.23：记录同步开始日志（每个账号一条）
+    let mut log_ids: Vec<(i64, i64)> = Vec::new(); // (account_id, log_id)
+    for account in &target {
+        if let Ok(log_id) = crate::db::insert_sync_log(conn, account.id, "auto", now) {
+            log_ids.push((account.id, log_id));
+        }
+    }
+
     let mut total_added = 0usize;
     let mut total_updated = 0usize;
     let mut total_candidate_done = 0usize;
@@ -567,16 +575,34 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
             total_failed.push(format!("{}: 未配置 PAT", login));
             continue;
         }
+        // 查找当前账号对应的日志 id
+        let log_id = log_ids.iter().find(|(aid, _)| *aid == account.id).map(|(_, lid)| *lid);
         match sync_account(conn, account, &pat, now) {
             Ok(r) => {
                 total_added += r.added;
                 total_updated += r.updated;
                 total_candidate_done += r.candidate_done;
                 total_removed += r.removed;
-                total_failed.extend(r.failed_sources);
+                total_failed.extend(r.failed_sources.clone());
+                // 更新日志：成功
+                if let Some(lid) = log_id {
+                    let _ = crate::db::update_sync_log(
+                        conn, lid, now_secs(), "success",
+                        r.added as i64, r.updated as i64, r.removed as i64,
+                        r.candidate_done as i64, 0,
+                        &r.failed_sources.join("; "), "",
+                    );
+                }
             }
             Err(e) => {
                 total_failed.push(format!("{}: {}", login, e));
+                // 更新日志：失败
+                if let Some(lid) = log_id {
+                    let _ = crate::db::update_sync_log(
+                        conn, lid, now_secs(), "failed",
+                        0, 0, 0, 0, 0, "", &e,
+                    );
+                }
             }
         }
     }
@@ -590,6 +616,9 @@ pub fn run(conn: &Connection) -> Result<SyncResult, String> {
         .map_err(|e| format!("清理过期已完成任务失败: {}", e))?;
 
     crate::db::set_setting(conn, "last_sync_at", &now.to_string())?;
+
+    // v0.3.23：清理超过 7 天的同步日志（保留策略）
+    let _ = crate::db::prune_sync_logs(conn, now);
 
     let total: usize = conn
         .query_row("SELECT COUNT(*) FROM tasks", [], |r| r.get(0))
