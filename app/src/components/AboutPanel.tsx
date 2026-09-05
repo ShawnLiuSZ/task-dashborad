@@ -61,8 +61,15 @@ export default function AboutPanel({ onClose }: Props) {
           <div className="muted small" style={{ marginTop: 6 }}>
             {t("about.localData")}
           </div>
-          <div className="muted small" style={{ marginTop: 4 }}>
-            {t("about.repoPath")}
+          <div className="about-repo-row" style={{ marginTop: 4 }}>
+            <span className="muted small">{t("about.repoPath")}</span>
+            <button
+              className="about-repo-link"
+              title="https://github.com/ShawnLiuSZ/task-dashborad"
+              onClick={() => void api.openInBrowser("https://github.com/ShawnLiuSZ/task-dashborad")}
+            >
+              ShawnLiuSZ/task-dashborad ↗
+            </button>
           </div>
 
           {checkedOnce && state.phase === "loading" && (

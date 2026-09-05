@@ -124,5 +124,5 @@
   "about.download": "Go to download",
   "about.error": "Update check failed: {error}",
   "about.localData": "Data stays in local SQLite and is never written back to GitHub",
-  "about.repoPath": "Repo: ShawnLiuSZ/task-dashborad"
+  "about.repoPath": "Repository"
 }

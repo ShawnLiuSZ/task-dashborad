@@ -821,6 +821,27 @@ body {
   background: #ffebe9;
 }
 
+.about-modal .about-repo-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.about-modal .about-repo-link {
+  border: none;
+  background: transparent;
+  padding: 0;
+  font-size: 12px;
+  font-family: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  text-decoration: underline;
+}
+
+.about-modal .about-repo-link:hover {
+  filter: brightness(0.9);
+}
+
 /* ===== v0.3.17+ 账号管理 + Device Flow 登录 ======================== */
 
 .account-list {

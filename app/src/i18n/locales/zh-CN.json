@@ -124,5 +124,5 @@
   "about.download": "前往下载",
   "about.error": "检查更新失败：{error}",
   "about.localData": "数据存本地 SQLite，绝不写回 GitHub",
-  "about.repoPath": "应用仓库：ShawnLiuSZ/task-dashborad"
+  "about.repoPath": "应用仓库"
 }
