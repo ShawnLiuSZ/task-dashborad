@@ -95,7 +95,7 @@
   "settings.deleteTitle": "Delete this account",
   "settings.addAccount": "+ Add account via GitHub login",
   "settings.labelPlaceholder": "Account label (optional; defaults to GitHub login)",
-  "settings.orgPlaceholder": "Organization (e.g. FoodsUp-Inc)",
+  "settings.orgPlaceholder": "Organization (optional, auto-filled after auth)",
   "settings.openingBrowser": "Opening browser…",
   "settings.authorizeLogin": "Sign in with GitHub",
   "settings.deviceFlowHint": "Clicking opens your browser; sign in to GitHub and click Authorize — no registration, no ID to enter, no token to paste.",

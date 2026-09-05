@@ -19,7 +19,7 @@ export default function AccountsPanel({
   const [accounts, setAccounts] = useState<Account[]>(settings.accounts);
   const [addingAccount, setAddingAccount] = useState(false);
   const [newLabel, setNewLabel] = useState("");
-  const [newOrg, setNewOrg] = useState(settings.org || "");
+  const [newOrg, setNewOrg] = useState("");
   const [accountMsg, setAccountMsg] = useState<string | null>(null);
   const [testingAccountId, setTestingAccountId] = useState<number | null>(null);
   const [err, setErr] = useState<string | null>(null);
@@ -238,7 +238,7 @@ export default function AccountsPanel({
                         oauthRunRef.current += 1;
                         setAddingAccount(false);
                         setNewLabel("");
-                        setNewOrg(settings.org || "");
+                        setNewOrg("");
                       }}
                     >
                       {t("btn.cancel")}
@@ -285,7 +285,7 @@ export default function AccountsPanel({
                       setOauthMsg(null);
                       setAddingAccount(false);
                       setNewLabel("");
-                      setNewOrg(settings.org || "");
+                      setNewOrg("");
                     }}
                   >
                     {t("btn.done")}
