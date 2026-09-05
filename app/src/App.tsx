@@ -170,54 +170,30 @@ function BoardApp() {
     }
   };
 
-  // v0.3.16+：切换视图模式（single/all）。
-  const handleSwitchView = async (mode: "single" | "all") => {
-    setError(null);
-    try {
-      await api.setViewMode(mode);
-      await loadSettings();
-      await load();
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   const selectedTask = tasks.find((t) => t.key === selected) ?? null;
 
   return (
     <div className="app">
       <header className="topbar">
         <div className="topbar-left">
-          {/* v0.3.16+：账号下拉 + 视图模式切换。 */}
+          {/* v0.3.16+：账号下拉。v0.3.x：暂隐藏「全部账号」视图模式，
+              待 project status map 功能落地后再恢复。 */}
           <select
             className="select"
-            value={settings?.viewMode ?? "single"}
-            onChange={(e) =>
-              void handleSwitchView(e.target.value as "single" | "all")
-            }
-            title={t("topbar.viewModeTitle")}
+            value={settings?.activeAccountId ?? 0}
+            onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
+            title={t("topbar.switchAccount")}
           >
-            <option value="single">{t("topbar.singleAccount")}</option>
-            <option value="all">{t("topbar.allAccounts")}</option>
+            {(settings?.accounts ?? []).length === 0 && (
+              <option value={0}>{t("topbar.noAccounts")}</option>
+            )}
+            {(settings?.accounts ?? []).map((a) => (
+              <option key={a.id} value={a.id}>
+                @{a.login}
+                {a.org ? ` (${a.org})` : ""}
+              </option>
+            ))}
           </select>
-          {settings?.viewMode === "single" && (
-            <select
-              className="select"
-              value={settings?.activeAccountId ?? 0}
-              onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
-              title={t("topbar.switchAccount")}
-            >
-              {(settings?.accounts ?? []).length === 0 && (
-                <option value={0}>{t("topbar.noAccounts")}</option>
-              )}
-              {(settings?.accounts ?? []).map((a) => (
-                <option key={a.id} value={a.id}>
-                  @{a.login}
-                  {a.org ? ` (${a.org})` : ""}
-                </option>
-              ))}
-            </select>
-          )}
           <span className="muted">
             {t("topbar.totalCount", { n: visible.length })}
           </span>
