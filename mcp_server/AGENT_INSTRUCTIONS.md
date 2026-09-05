@@ -1,5 +1,9 @@
 # TaskBoard MCP — Agent 自动维护看板指令
 
+> **中文**
+>
+> English version see [AGENT_INSTRUCTIONS.en.md](./AGENT_INSTRUCTIONS.en.md)
+
 本文件是一份**可直接喂给任意 coding agent**（claude-code / codex / opencode / zcode / helix / cursor / doubao …）的指令规范。
 只要该 agent 已接入 `taskboard` MCP Server（见仓库 `README.md` 的「MCP Server」一节），它就能在**不写回 GitHub** 的前提下，
 自动把任务状态、中断会话、交接详情记录到本地 TaskBoard 看板。
@@ -96,4 +100,4 @@ clear_session(issue="fad-backend#1247")
 ## 4. 注意事项
 - 所有工具**只对本地数据库生效**，不会向 GitHub 推送任何变更、不触发任何通知。
 - `issue` 必须是看板里已存在的任务（同步自 `org:FoodsUp-Inc` 的 open issue）；若返回「任务不存在」，先 `list_my_tasks` 确认 key 是否正确（注意是 `repo#number`，不含 owner）。
-- 数据库文件默认 `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`，可由环境变量 `TASKBOARD_DB` 覆盖。
+- 数据库文件默认 `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`，可由环境变量 `TASKBOARD_DB` 覆盖。

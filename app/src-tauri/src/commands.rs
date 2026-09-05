@@ -1,5 +1,6 @@
 use rusqlite::Connection;
 use serde::Serialize;
+use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
 use crate::db::Account;
@@ -679,4 +680,74 @@ pub fn set_view_mode(state: State<'_, AppState>, mode: String) -> Result<(), Str
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::db::set_setting(&conn, "view_mode", &mode)?;
     Ok(())
+}
+
+// ============================================================================
+// v0.3.19+：关于页面 —— 当前版本号 + 检查更新（GitHub Releases）
+// ============================================================================
+
+/// 返回当前应用版本号。来源为 Rust 包版本（Cargo.toml `version`），
+/// 而非前端硬编码——保证「关于」页展示的版本与发布版本号一致。
+#[tauri::command]
+pub fn get_app_version() -> String {
+    env!("CARGO_PKG_VERSION").to_string()
+}
+
+/// 「检查更新」返回信息。
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct CheckUpdate {
+    /// 当前版本（Cargo 包版本）。
+    pub current: String,
+    /// GitHub 最新 release 的版本号（去掉前缀 `v`）。
+    pub latest: String,
+    /// 当前是否已是最新。
+    pub up_to_date: bool,
+    /// 最新 release 页面地址，用于引导跳转下载。
+    pub url: String,
+    /// 非空表示检查失败（网络 / 解析等），前端据此展示错误。
+    pub error: String,
+}
+
+/// 轻量检查更新：调用 GitHub Releases API `releases/latest`，对比最新/当前版本。
+/// 只读公开数据仓库，无需 PAT；用 `spawn_blocking` 避免阻塞主线程（reqwest 为 blocking）。
+#[tauri::command]
+pub async fn check_latest_release() -> Result<CheckUpdate, String> {
+    tauri::async_runtime::spawn_blocking(|| {
+        let current = env!("CARGO_PKG_VERSION").to_string();
+        let client = reqwest::blocking::Client::builder()
+            .user_agent(format!("taskboard/{current}"))
+            .timeout(Duration::from_secs(20))
+            .build()
+            .map_err(|e| format!("构造 HTTP 客户端失败: {e}"))?;
+        let resp: serde_json::Value = client
+            .get("https://api.github.com/repos/ShawnLiuSZ/task-dashborad/releases/latest")
+            .send()
+            .map_err(|e| format!("检查更新失败（网络）：{e}"))?
+            .error_for_status()
+            .map_err(|e| format!("检查更新失败（GitHub 返回错误）：{e}"))?
+            .json()
+            .map_err(|e| format!("检查更新失败（解析响应）：{e}"))?;
+        let latest = resp
+            .get("tag_name")
+            .and_then(|v| v.as_str())
+            .unwrap_or("")
+            .trim_start_matches('v')
+            .to_string();
+        let url = resp
+            .get("html_url")
+            .and_then(|v| v.as_str())
+            .unwrap_or("https://github.com/ShawnLiuSZ/task-dashborad/releases")
+            .to_string();
+        let up_to_date = !latest.is_empty() && latest == current;
+        Ok(CheckUpdate {
+            current,
+            latest,
+            up_to_date,
+            url,
+            error: String::new(),
+        })
+    })
+    .await
+    .map_err(|e| format!("检查更新线程异常: {e}"))?
 }

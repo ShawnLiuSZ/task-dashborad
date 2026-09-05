@@ -1,21 +1,28 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { api, onSynced } from "./api";
+import { fmtTime, I18nProvider, useI18n } from "./i18n";
 import Board from "./components/Board";
 import DetailPanel from "./components/DetailPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import AboutPanel from "./components/AboutPanel";
 import type { Account, Settings as SettingsT, Task } from "./types";
 
-export function fmtTime(ts: number): string {
-  if (!ts) return "从未";
-  return new Date(ts * 1000).toLocaleString("zh-CN", { hour12: false });
+export default function App() {
+  return (
+    <I18nProvider>
+      <BoardApp />
+    </I18nProvider>
+  );
 }
 
-export default function App() {
+function BoardApp() {
+  const { lang, t } = useI18n();
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selected, setSelected] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState<SettingsT | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
   const [repo, setRepo] = useState("");
@@ -61,13 +68,15 @@ export default function App() {
       void load();
       void loadSettings();
       const warn = r.warning ? ` · ⚠️ ${r.warning}` : "";
-      const prune = r.pruned > 0 ? ` · 清理已完成 ${r.pruned}` : "";
-      setLastResult(`新增 ${r.added} · 更新 ${r.updated} · 候选完成 ${r.candidateDone}${prune}${warn}`);
+      const prune = r.pruned > 0 ? ` · ${t("sync.pruned", { n: r.pruned })}` : "";
+      setLastResult(
+        `${t("sync.result", { added: r.added, updated: r.updated, done: r.candidateDone })}${prune}${warn}`,
+      );
     });
     return () => {
       void un.then((f) => f());
     };
-  }, [load, loadSettings]);
+  }, [load, loadSettings, t]);
 
   // 仓库列表（去重排序），用于仓库筛选下拉。
   const repos = useMemo(
@@ -101,8 +110,10 @@ export default function App() {
     try {
       const r = await api.syncNow();
       const warn = r.warning ? ` · ⚠️ ${r.warning}` : "";
-      const prune = r.pruned > 0 ? ` · 清理已完成 ${r.pruned}` : "";
-      setLastResult(`新增 ${r.added} · 更新 ${r.updated} · 候选完成 ${r.candidateDone}${prune}${warn}`);
+      const prune = r.pruned > 0 ? ` · ${t("sync.pruned", { n: r.pruned })}` : "";
+      setLastResult(
+        `${t("sync.result", { added: r.added, updated: r.updated, done: r.candidateDone })}${prune}${warn}`,
+      );
       await load();
       await loadSettings();
     } catch (e) {
@@ -158,20 +169,20 @@ export default function App() {
             onChange={(e) =>
               void handleSwitchView(e.target.value as "single" | "all")
             }
-            title="视图模式：单账号 / 全部账号"
+            title={t("topbar.viewModeTitle")}
           >
-            <option value="single">单账号</option>
-            <option value="all">全部账号</option>
+            <option value="single">{t("topbar.singleAccount")}</option>
+            <option value="all">{t("topbar.allAccounts")}</option>
           </select>
           {settings?.viewMode === "single" && (
             <select
               className="select"
               value={settings?.activeAccountId ?? 0}
               onChange={(e) => void handleSwitchAccount(Number(e.target.value))}
-              title="切换激活账号"
+              title={t("topbar.switchAccount")}
             >
               {(settings?.accounts ?? []).length === 0 && (
-                <option value={0}>（未配置）</option>
+                <option value={0}>{t("topbar.noAccounts")}</option>
               )}
               {(settings?.accounts ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
@@ -184,20 +195,25 @@ export default function App() {
             {activeAccount
               ? `${activeAccount.login} @ ${activeAccount.org}`
               : settings?.hasPat === false
-                ? "未配置 PAT"
-                : "未登录"}
+                ? t("topbar.noPat")
+                : t("topbar.notLoggedIn")}
             {" · "}
-            共 {visible.length} 条
+            {t("topbar.totalCount", { n: visible.length })}
           </span>
         </div>
 
         <div className="topbar-right">
-          <span className="muted small">上次同步 {fmtTime(settings?.lastSyncAt ?? 0)}</span>
+          <span className="muted small">
+            {t("topbar.lastSync", { time: fmtTime(settings?.lastSyncAt ?? 0, lang) })}
+          </span>
+          <button className="btn" onClick={() => setShowAbout(true)}>
+            {t("btn.about")}
+          </button>
           <button className="btn" onClick={() => setShowSettings(true)}>
-            设置
+            {t("btn.settings")}
           </button>
           <button className="btn primary" onClick={doSync} disabled={syncing}>
-            {syncing ? "同步中…" : "立即同步"}
+            {syncing ? t("btn.syncing") : t("btn.syncNow")}
           </button>
         </div>
       </header>
@@ -205,7 +221,7 @@ export default function App() {
       <div className="toolbar">
         <input
           className="input"
-          placeholder="搜索仓库 / 编号 / 标题…"
+          placeholder={t("search.placeholder")}
           value={query}
           onChange={(e) => setQuery(e.target.value)}
         />
@@ -213,9 +229,9 @@ export default function App() {
           className="select"
           value={repo}
           onChange={(e) => setRepo(e.target.value)}
-          title="按仓库筛选"
+          title={t("filter.byRepo")}
         >
-          <option value="">全部仓库</option>
+          <option value="">{t("filter.allRepos")}</option>
           {repos.map((r) => (
             <option key={r} value={r}>
               {r}
@@ -226,12 +242,12 @@ export default function App() {
           className="select"
           value={ownership}
           onChange={(e) => setOwnership(e.target.value)}
-          title="按归属筛选"
+          title={t("filter.byOwnership")}
         >
-          <option value="">全部归属</option>
-          <option value="assigned">分配给我</option>
-          <option value="notassignee">无人认领</option>
-          <option value="assigned-others">分配给他人</option>
+          <option value="">{t("filter.allOwnership")}</option>
+          <option value="assigned">{t("ownership.assigned")}</option>
+          <option value="notassignee">{t("ownership.notassignee")}</option>
+          <option value="assigned-others">{t("ownership.assigned-others")}</option>
         </select>
         {(query || repo || ownership) && (
           <button
@@ -241,9 +257,9 @@ export default function App() {
               setRepo("");
               setOwnership("");
             }}
-            title="清除筛选"
+            title={t("filter.clear")}
           >
-            重置
+            {t("btn.reset")}
           </button>
         )}
       </div>
@@ -267,7 +283,7 @@ export default function App() {
           <div
             className="detail-backdrop"
             onClick={() => setSelected(null)}
-            title="点击空白处关闭"
+            title={t("detail.clickBackdropClose")}
           />
           <DetailPanel
             task={selectedTask}
@@ -291,6 +307,12 @@ export default function App() {
           onAccountsChanged={() => {
             void loadSettings();
           }}
+        />
+      )}
+
+      {showAbout && (
+        <AboutPanel
+          onClose={() => setShowAbout(false)}
         />
       )}
     </div>

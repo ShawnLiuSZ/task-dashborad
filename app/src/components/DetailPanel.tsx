@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { api } from "../api";
-import { COLUMNS, OWNERSHIP_LABEL, type StatusKey, type Task } from "../types";
-import { fmtTime } from "../App";
+import { COLUMNS, type StatusKey, type Task } from "../types";
+import { fmtTime, useI18n } from "../i18n";
 
 // 主流 coding agent 列表：供「中断会话」记录时标注来源。可按需增删。
 // value 为规范化 slug（与 MCP/agent 自报名一致，便于存储与展示统一），
@@ -55,6 +55,7 @@ interface Props {
 }
 
 export default function DetailPanel({ task, onClose, onChanged }: Props) {
+  const { t, lang } = useI18n();
   const [busy, setBusy] = useState(false);
   const [sessionInput, setSessionInput] = useState(task.sessionId ?? "");
   const [agent, setAgent] = useState(task.sessionAgent ?? "claude-code");
@@ -90,7 +91,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           <span className="num">#{task.number}</span>
         </div>
         <button className="btn ghost" onClick={onClose}>
-          关闭
+          {t("btn.close")}
         </button>
       </div>
 
@@ -98,14 +99,14 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
 
       <div className="tags">
         <span className={`own own-${task.ownership}`}>
-          {OWNERSHIP_LABEL[task.ownership]}
+          {t(`ownership.${task.ownership}`)}
         </span>
-        {task.candidateDone && <span className="candidate-tag">GitHub 已关闭 · 待确认</span>}
-        <span className="muted small">更新于 {task.updatedAt ?? "—"}</span>
+        {task.candidateDone && <span className="candidate-tag">{t("detail.closedPending")}</span>}
+        <span className="muted small">{t("detail.updatedAt", { time: task.updatedAt ?? "—" })}</span>
       </div>
 
       <section className="detail-block">
-        <div className="block-title">执行状态</div>
+        <div className="block-title">{t("detail.statusTitle")}</div>
         <div className="seg">
           {COLUMNS.map((c) => (
             <button
@@ -114,14 +115,14 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
               disabled={busy}
               onClick={() => run(() => api.updateStatus(task.key, c.key as StatusKey))}
             >
-              {c.label}
+              {t(`status.${c.key}`)}
             </button>
           ))}
         </div>
       </section>
 
       <section className="detail-block">
-        <div className="block-title">中断会话</div>
+        <div className="block-title">{t("detail.sessionTitle")}</div>
         <div className="row">
           <input
             className="input"
@@ -145,32 +146,35 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
               run(() => api.recordSession(task.key, sessionInput.trim(), agent))
             }
           >
-            记录
+            {t("btn.record")}
           </button>
           <button
             className="btn"
             disabled={busy || !task.sessionId}
             onClick={() => run(() => api.clearSession(task.key))}
           >
-            清空
+            {t("btn.clear")}
           </button>
           <button className="btn" disabled={!task.sessionId} onClick={copySession}>
-            {copied ? "已复制" : "复制"}
+            {copied ? t("btn.copied") : t("btn.copy")}
           </button>
         </div>
         {task.sessionId && (
           <div className="muted small">
-            {task.sessionAgent || "未标注"} · 记录于 {fmtTime(task.sessionAt ?? 0)}
+            {t("detail.recordedAt", {
+              agent: task.sessionAgent || t("detail.unlabeled"),
+              time: fmtTime(task.sessionAt ?? 0, lang),
+            })}
           </div>
         )}
       </section>
 
       <section className="detail-block">
-        <div className="block-title">交接任务</div>
+        <div className="block-title">{t("detail.handoffTitle")}</div>
         <textarea
           className="input wide"
           rows={3}
-          placeholder="接入 claude / codex 等 agent 后，由其识别「生成交接任务」类意图并写入；也可在此手动记录"
+          placeholder={t("detail.handoffPlaceholder")}
           value={handoff}
           onChange={(e) => setHandoff(e.target.value)}
         />
@@ -180,16 +184,18 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
             disabled={busy || !handoff.trim()}
             onClick={() => run(() => api.recordHandoff(task.key, handoff.trim()))}
           >
-            保存
+            {t("btn.save")}
           </button>
           {task.handoff && handoff.trim() !== task.handoff && (
             <button className="btn ghost" onClick={() => setHandoff(task.handoff ?? "")}>
-              还原
+              {t("btn.revert")}
             </button>
           )}
         </div>
         {task.handoff && (
-          <div className="muted small top-gap">已记录交接详情（共 {task.handoff.length} 字）</div>
+          <div className="muted small top-gap">
+            {t("detail.handoffSaved", { n: task.handoff.length })}
+          </div>
         )}
       </section>
 
@@ -197,7 +203,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
         <div className="block-title">GitHub</div>
         <div className="row">
           <button className="btn" onClick={() => void api.openInBrowser(task.url)}>
-            在浏览器打开
+            {t("detail.openInBrowser")}
           </button>
           {task.prNumber > 0 && task.prUrl && (
             <button className="btn" onClick={() => void api.openInBrowser(task.prUrl)}>
@@ -206,22 +212,28 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           )}
           {task.latestCommentUrl && (
             <button className="btn" onClick={() => void api.openInBrowser(task.latestCommentUrl)}>
-              最新评论
+              {t("detail.latestComment")}
             </button>
           )}
         </div>
         <div className="muted small top-gap">
           {task.assignees
-            ? `分配人：${task.assignees.split(",").filter(Boolean).map((a) => `@${a}`).join(" ")}`
-            : "无人认领"}
-          {task.mentioned && " · 评论区有人 @我"}
+            ? t("detail.assignees", {
+                list: task.assignees
+                  .split(",")
+                  .filter(Boolean)
+                  .map((a) => `@${a}`)
+                  .join(" "),
+              })
+            : t("ownership.notassignee")}
+          {task.mentioned && ` · ${t("detail.mentionedSuffix")}`}
         </div>
         {task.branch && (
-          <div className="branch-line top-gap">🌿 分支：{task.branch}</div>
+          <div className="branch-line top-gap">
+            {t("detail.branch", { branch: task.branch })}
+          </div>
         )}
-        <div className="muted small top-gap">
-          会话与状态只存在本地，不会写回 GitHub
-        </div>
+        <div className="muted small top-gap">{t("detail.localOnly")}</div>
       </section>
 
       {err && <div className="banner error">{err}</div>}

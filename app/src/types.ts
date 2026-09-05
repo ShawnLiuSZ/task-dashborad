@@ -105,15 +105,27 @@ export interface DeviceLoginPoll {
   message: string;
 }
 
-export const COLUMNS: { key: StatusKey; label: string; hint: string }[] = [
-  { key: "todo", label: "待处理", hint: "已拉入看板，尚未开始" },
-  { key: "doing", label: "处理中", hint: "正在处理，可记录中断会话" },
-  { key: "processed", label: "已处理", hint: "做完了，待确认收尾" },
-  { key: "done", label: "已完成", hint: "确认完成，归档" },
-];
+/** v0.3.19+：「检查更新」命令返回值。 */
+export interface CheckUpdate {
+  /** 当前版本（来自后端 Cargo 包版本）。 */
+  current: string;
+  /** GitHub 最新 release 版本号（去 `v` 前缀）。 */
+  latest: string;
+  /** 当前是否已是最新。 */
+  upToDate: boolean;
+  /** 最新 release 页面地址。 */
+  url: string;
+  /** 非空表示检查失败。 */
+  error: string;
+}
 
-export const OWNERSHIP_LABEL: Record<Ownership, string> = {
-  assigned: "分配给我",
-  notassignee: "无人认领",
-  "assigned-others": "分配给他人",
-};
+/**
+ * 四态列定义。label / hint 走 i18n：status.{key} / hint.{key}
+ * （Issue #7 起不再硬编码中文文案）。
+ */
+export const COLUMNS: { key: StatusKey }[] = [
+  { key: "todo" },
+  { key: "doing" },
+  { key: "processed" },
+  { key: "done" },
+];

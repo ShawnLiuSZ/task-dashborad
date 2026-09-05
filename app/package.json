@@ -1,12 +1,14 @@
 {
   "name": "taskboard",
   "private": true,
-  "version": "0.3.17",
+  "version": "0.3.19",
   "type": "module",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
+    "test": "vitest run",
     "preview": "vite preview",
+    "i18n:check": "node scripts/check-i18n.mjs",
     "tauri": "tauri"
   },
   "dependencies": {
@@ -20,6 +22,7 @@
     "@types/react-dom": "^18.3.1",
     "@vitejs/plugin-react": "^4.3.4",
     "typescript": "^5.6.3",
-    "vite": "^6.0.3"
+    "vite": "^6.0.3",
+    "vitest": "^5.0.0"
   }
 }
