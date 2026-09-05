@@ -49,6 +49,7 @@ npm run tauri build    # 产出当前平台的 release 安装包
 | 搜索 / 仓库筛选 | 顶部搜索框按 **仓库名 / 编号 / 标题** 实时过滤；仓库下拉按仓库隔离；右侧「重置」一键清除所有筛选                                                                                              |
 | 中断会话      | 选中卡片 → 输入 session id + 选 agent（claude-code / workbuddy / doubao / opencode / codex / zcode / gemini-cli / cursor / aider / qwen-code 等）→ 记录；可复制、可清空 |
 | 交接任务      | 选中卡片 → 「交接任务」区块录入详情并保存（后续可由接入的 agent 在识别「生成交接任务」类意图时自动写入）                                                                                           |
+| **同步日志**  | 顶栏「同步日志」按钮 → 查看最近同步历史（时间、触发方式、耗时、状态、新增/更新/移除数量、错误信息）；支持手动清理过期日志，超过 7 天的日志自动清理                                                                        |
 | 本地数据      | `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`                                                                               |
 
 ### 关键约束
