@@ -2,6 +2,28 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.18 (2026-09-05) — Establish and run a version-release process (first unified version number)**
+
+  - Background (#5): starting from v0.3.17, establish a clear SemVer release process so the Rust/Cargo, frontend package.json, Tauri config, built-in MCP, portable `mcp_server/server.py`, and doc version numbers all stay consistent, and provide a reproducible base for future releases.
+
+  - Version number unified to 0.3.18:
+
+    - `app/src-tauri/Cargo.toml` `version=0.3.18`
+
+    - `app/package.json` + `package-lock.json` `version=0.3.18`
+
+    - `app/src-tauri/tauri.conf.json` `version=0.3.18` (artifacts `TaskBoard_0.3.18_*.app/dmg`)
+
+    - `app/src-tauri/src/mcp.rs` `SERVER_VERSION=0.3.18` (built-in MCP `serverInfo.version`, returned via `taskboard mcp` `initialize`)
+
+    - `mcp_server/server.py` `serverInfo.version` corrected from the stale 0.3.10 to 0.3.18 (portable fallback stays consistent with the built-in binary)
+
+  - Docs synced: README / PRD / bilingual CHANGELOG now reference 0.3.18; added English docs (README.en / AGENT_INSTRUCTIONS.en / CHANGELOG.en).
+
+  - Cross-platform docs (#8) ship with this release: README / CLAUDE / PRD drop the "macOS-only" wording, now Windows / macOS / Linux.
+
+  - Verification: `cargo check` zero warnings; `cargo build --release` produces the built-in MCP binary (smoke `initialize`→`serverInfo 0.3.18`, `tools/list` with all 6 tools); portable `mcp_server/server.py` smoke-consistent.
+
 - **v0.3.17 (2026-09-04) — GitHub OAuth Device Flow sign-in (replacing PASTE-ing a PAT)**
 
   - Requirement: no more manually creating/pasting a PAT to sign in to GitHub; move to a "click the button → authorize in the browser" linked-login experience.
