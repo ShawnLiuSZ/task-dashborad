@@ -11,3 +11,4 @@ dist/
 
 # --- Agent tooling memory (local only, not project source) ---
 .workbuddy/
+.worktrees
