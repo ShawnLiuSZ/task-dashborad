@@ -1,5 +1,9 @@
 # TaskBoard MCP — Agent 自动维护看板指令
 
+> **中文**
+>
+> English version see [AGENT_INSTRUCTIONS.en.md](./AGENT_INSTRUCTIONS.en.md)
+
 本文件是一份**可直接喂给任意 coding agent**（claude-code / codex / opencode / zcode / helix / cursor / doubao …）的指令规范。
 只要该 agent 已接入 `taskboard` MCP Server（见仓库 `README.md` 的「MCP Server」一节），它就能在**不写回 GitHub** 的前提下，
 自动把任务状态、中断会话、交接详情记录到本地 TaskBoard 看板。
