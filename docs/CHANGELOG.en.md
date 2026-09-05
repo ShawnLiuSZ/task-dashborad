@@ -10,6 +10,7 @@
   - Settings / About / Accounts / Sync Logs modals are now unified under a single mutually-exclusive `activeModal` state, so only one modal shows at a time (fixes modal overlap after adding new buttons; root cause same as #26).
   - Temporarily hidden the "All accounts" view mode; only single-account mode remains.
   - The `.modal` container now clamps its height to the viewport (`max-height` + `overflow-y: auto`), fixing the title bar / bottom being cut off in short windows.
+  - The `.modal-mask` now sits at `z-index: 20` (above the topbar/toolbar at 5), so the modal top is no longer covered by the search bar in short windows.
   - KB doc: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md)
 
 - **v0.3.23 (2026-09-05) — Sync logs feature (#27)**

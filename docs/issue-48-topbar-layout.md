@@ -22,6 +22,7 @@
 - UI 行为：暂移除「单账号 / 全部账号」视图模式下拉，仅使用单账号模式（恒渲染账号下拉）。后端 `setViewMode` 命令与 `accountFilter` 的 viewMode 逻辑保留，待 project status map 功能落地后再恢复「全部账号」入口。
 - UI 行为：顶部栏「设置 / 关于 / 账号 / 同步日志」四个弹窗统一收敛到互斥的 `activeModal` 状态，同一时刻仅显示一个弹窗，修复新增按钮后弹窗互相叠加的问题（根因同 [#26](https://github.com/ShawnLiuSZ/task-dashborad/issues/26)：账号/同步日志原先用独立 state，未与设置/关于互斥）。
 - UI 行为：弹窗容器 `.modal` 增加 `max-height: calc(100% - 48px)` 与 `overflow-y: auto`，窗口高度拉小时弹窗高度随视口收敛、内部出现滚动条，修复标题栏 / 底部被截断的问题。
+- UI 行为：`.modal-mask` 提升 `z-index: 20`（高于 `topbar`/`toolbar` 的 `z-index: 5`），矮窗口下弹窗顶部伸入搜索栏区域时不再被其遮挡压住。
 - 无 Tauri 命令、MCP 工具或数据结构变更。
 
 ## 数据 / Schema 变更

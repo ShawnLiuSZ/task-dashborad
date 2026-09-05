@@ -923,6 +923,8 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 高于 topbar/toolbar（z-index:5），矮窗口下弹窗顶栏不被搜索栏压住。 */
+  z-index: 20;
 }
 
 .modal {
