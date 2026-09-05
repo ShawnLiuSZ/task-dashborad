@@ -842,6 +842,58 @@ body {
   filter: brightness(0.9);
 }
 
+/* ===== v0.3.19+ 关于页：简介 / 能力 / 数据 / MCP ================= */
+
+.about-modal .about-body {
+  max-height: 58vh;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.about-modal .about-intro {
+  margin: 8px 0 0;
+  line-height: 1.5;
+}
+
+.about-modal .about-section h4 {
+  margin: 12px 0 6px;
+  font-size: 12px;
+  color: var(--text);
+}
+
+.about-modal .about-caps {
+  margin: 0;
+  padding-left: 16px;
+  font-size: 12px;
+  color: var(--text-2);
+  line-height: 1.7;
+}
+
+.about-modal .about-data-path {
+  display: block;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  line-height: 1.5;
+  background: var(--bg);
+  padding: 6px 8px;
+  border-radius: 6px;
+  color: var(--text-2);
+  overflow-wrap: anywhere;
+}
+
+.about-modal .about-code {
+  margin: 6px 0;
+  padding: 8px 10px;
+  background: #0d1117;
+  color: #e6edf3;
+  border-radius: 8px;
+  font-size: 11px;
+  line-height: 1.5;
+  overflow-x: auto;
+}
+
 /* ===== v0.3.17+ 账号管理 + Device Flow 登录 ======================== */
 
 .account-list {
