@@ -21,8 +21,7 @@ function BoardApp() {
   const [selected, setSelected] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState<SettingsT | null>(null);
-  const [showSettings, setShowSettings] = useState(false);
-  const [showAbout, setShowAbout] = useState(false);
+  const [activeModal, setActiveModal] = useState<"settings" | "about" | null>(null);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
   const [repo, setRepo] = useState("");
@@ -239,10 +238,10 @@ function BoardApp() {
           <span className="muted small">
             {t("topbar.lastSync", { time: fmtTime(settings?.lastSyncAt ?? 0, lang) })}
           </span>
-          <button className="btn" onClick={() => setShowAbout(true)}>
+          <button className="btn" onClick={() => setActiveModal(activeModal === "about" ? null : "about")}>
             {t("btn.about")}
           </button>
-          <button className="btn" onClick={() => setShowSettings(true)}>
+          <button className="btn" onClick={() => setActiveModal(activeModal === "settings" ? null : "settings")}>
             {t("btn.settings")}
           </button>
           <button className="btn primary" onClick={doSync} disabled={syncing}>
@@ -346,24 +345,24 @@ function BoardApp() {
         </>
       )}
 
-      {showSettings && settings && (
+      {activeModal === "settings" && settings && (
         <SettingsPanel
           settings={settings}
           onSaved={(s) => {
             setSettings(s);
-            setShowSettings(false);
+            setActiveModal(null);
             void load();
           }}
-          onClose={() => setShowSettings(false)}
+          onClose={() => setActiveModal(null)}
           onAccountsChanged={() => {
             void loadSettings();
           }}
         />
       )}
 
-      {showAbout && (
+      {activeModal === "about" && (
         <AboutPanel
-          onClose={() => setShowAbout(false)}
+          onClose={() => setActiveModal(null)}
         />
       )}
     </div>
