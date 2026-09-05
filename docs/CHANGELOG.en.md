@@ -6,6 +6,7 @@
 
   - The topbar-right button group ("About / Settings / Accounts / Sync Logs / Sync Now") no longer wraps when the window is too narrow (`flex-wrap: nowrap`); instead the whole window scrolls horizontally.
   - Removed the "TaskBoard" brand text from the leftmost side of the topbar to free up space and reduce visual redundancy.
+  - Added inline SVG icons to the 5 topbar-right buttons; below 1100px only icons are shown; "Sync logs" now uses an i18n key.
   - KB doc: [`docs/issue-48-topbar-layout.md`](./issue-48-topbar-layout.md)
 
 - **v0.3.23 (2026-09-05) — Sync logs feature (#27)**
