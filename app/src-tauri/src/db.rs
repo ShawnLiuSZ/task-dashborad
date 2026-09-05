@@ -6,6 +6,14 @@ use tauri::{AppHandle, Manager};
 /// 同时用于推导无 GUI 运行时的本地数据目录（MCP 子命令等）。
 pub const APP_IDENTIFIER: &str = "com.shawnliu.taskboard";
 
+/// 检查是否启用详细日志（TASKBOARD_LOG=1 或 TASKBOARD_LOG=debug）。
+/// MCP 调用时默认静默，仅在排障时显式开启。
+fn verbose_enabled() -> bool {
+    std::env::var("TASKBOARD_LOG")
+        .map(|v| matches!(v.as_str(), "1" | "debug" | "verbose" | "true"))
+        .unwrap_or(false)
+}
+
 const SCHEMA: &str = r#"
 CREATE TABLE IF NOT EXISTS accounts (
   id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -193,8 +201,10 @@ pub fn open_db(path: &Path) -> Result<Connection, String> {
     ] {
         if let Err(e) = conn.execute(col_sql, []) {
             // **不再吞掉**：v0.3.16 之前是 `let _ = ...`，导致脏 DB 被静默接受，下次 sync
-            // 触发 panic。改为 eprintln 显式记录（前端暂不展示，便于事后诊断）。
-            eprintln!("[db] 列迁移跳过（已存在或 schema 不兼容）: {} | sql={}", e, col_sql);
+            // 触发 panic。默认静默（MCP 调用时不刷屏），仅 TASKBOARD_LOG=1 时输出。
+            if verbose_enabled() {
+                eprintln!("[db] 列迁移跳过（已存在或 schema 不兼容）: {} | sql={}", e, col_sql);
+            }
         }
     }
     for (k, v) in DEFAULT_SETTINGS {
@@ -211,17 +221,23 @@ pub fn open_db(path: &Path) -> Result<Connection, String> {
         "CREATE INDEX IF NOT EXISTS idx_label_mappings_repo ON label_mappings(repo)",
     ] {
         if let Err(e) = conn.execute(idx_sql, []) {
-            eprintln!("[db] label_mappings 索引创建跳过: {}", e);
+            if verbose_enabled() {
+                eprintln!("[db] label_mappings 索引创建跳过: {}", e);
+            }
         }
     }
     // v0.3.21：label_mappings 增加 order_index 列（用于 Label 列视图排序）。
     if let Err(e) = conn.execute("ALTER TABLE label_mappings ADD COLUMN order_index INTEGER NOT NULL DEFAULT 0", []) {
-        eprintln!("[db] label_mappings order_index 列迁移跳过: {}", e);
+        if verbose_enabled() {
+            eprintln!("[db] label_mappings order_index 列迁移跳过: {}", e);
+        }
     }
     // v0.3.15 → v0.3.16 自动迁移：把 v0.3.15 写在 meta.pat_token 的单账号 PAT
     // 迁到 accounts 表（首条默认账号）。原 meta 字段保留作兼容兜底，单账号视图仍可读。
     if let Err(e) = migrate_v0315_to_accounts(&conn) {
-        eprintln!("[db] v0.3.15 → v0.3.16 迁移失败（已保留兜底字段）: {}", e);
+        if verbose_enabled() {
+            eprintln!("[db] v0.3.15 → v0.3.16 迁移失败（已保留兜底字段）: {}", e);
+        }
     }
     Ok(conn)
 }
@@ -273,10 +289,12 @@ fn migrate_v0315_to_accounts(conn: &Connection) -> Result<(), String> {
         );
     }
     set_setting(conn, "active_account_id", &new_id.to_string())?;
-    eprintln!(
-        "[db] v0.3.15 → v0.3.16 自动迁移完成：新账号 id={} @{} (org={})",
-        new_id, login, org
-    );
+    if verbose_enabled() {
+        eprintln!(
+            "[db] v0.3.15 → v0.3.16 自动迁移完成：新账号 id={} @{} (org={})",
+            new_id, login, org
+        );
+    }
     Ok(())
 }
 
