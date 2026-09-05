@@ -220,7 +220,7 @@ function BoardApp() {
               )}
               {(settings?.accounts ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
-                  {a.label} (@{a.login})
+                  @{a.login}
                 </option>
               ))}
             </select>
