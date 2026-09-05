@@ -5,7 +5,7 @@ import Board from "./components/Board";
 import DetailPanel from "./components/DetailPanel";
 import SettingsPanel from "./components/SettingsPanel";
 import AboutPanel from "./components/AboutPanel";
-import type { Account, Settings as SettingsT, Task } from "./types";
+import type { Account, BoardMode, ProjectStatus, Settings as SettingsT, Task } from "./types";
 
 export default function App() {
   return (
@@ -28,6 +28,7 @@ function BoardApp() {
   const [repo, setRepo] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
+  const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([]);
 
   // 同步结果 banner 4 秒后自动消失（错误 banner 不受影响，由下次操作覆盖）。
   useEffect(() => {
@@ -61,12 +62,37 @@ function BoardApp() {
     }
   }, []);
 
+  const loadProjectStatuses = useCallback(async () => {
+    try {
+      const activeId = settings?.activeAccountId;
+      if (activeId) {
+        const all = await api.listProjectStatuses(activeId);
+        // 按 project_github_id 分组，取条目数最多的项目（主项目）的状态
+        const byProject = new Map<string, typeof all>();
+        for (const ps of all) {
+          const arr = byProject.get(ps.projectGithubId) ?? [];
+          arr.push(ps);
+          byProject.set(ps.projectGithubId, arr);
+        }
+        // 取条目最多的项目
+        let best: typeof all = [];
+        for (const arr of byProject.values()) {
+          if (arr.length > best.length) best = arr;
+        }
+        setProjectStatuses(best);
+      }
+    } catch (e) {
+      console.warn("加载项目状态选项失败:", e);
+    }
+  }, [settings?.activeAccountId]);
+
   useEffect(() => {
     void load();
     void loadSettings();
     const un = onSynced((r) => {
       void load();
       void loadSettings();
+      void loadProjectStatuses();
       const warn = r.warning ? ` · ⚠️ ${r.warning}` : "";
       const prune = r.pruned > 0 ? ` · ${t("sync.pruned", { n: r.pruned })}` : "";
       setLastResult(
@@ -77,6 +103,11 @@ function BoardApp() {
       void un.then((f) => f());
     };
   }, [load, loadSettings, t]);
+
+  // settings 加载完成后拉取项目 Status 选项
+  useEffect(() => {
+    void loadProjectStatuses();
+  }, [loadProjectStatuses]);
 
   // 仓库列表（去重排序），用于仓库筛选下拉。
   const repos = useMemo(
@@ -193,7 +224,9 @@ function BoardApp() {
           )}
           <span className="muted">
             {activeAccount
-              ? `${activeAccount.login} @ ${activeAccount.org}`
+              ? activeAccount.org
+                ? `${activeAccount.login} @ ${activeAccount.org}`
+                : activeAccount.login
               : settings?.hasPat === false
                 ? t("topbar.noPat")
                 : t("topbar.notLoggedIn")}
@@ -262,6 +295,22 @@ function BoardApp() {
             {t("btn.reset")}
           </button>
         )}
+
+        {/* v0.3.21+：看板列模式切换（Project Status 列视图） */}
+        <select
+          className="select"
+          value={settings?.boardMode ?? "project"}
+          onChange={(e) => {
+            const mode = e.target.value as BoardMode;
+            if (mode !== settings?.boardMode) {
+              void api.setBoardMode(mode);
+              void loadSettings();
+            }
+          }}
+          title={t("settings.boardModeTitle")}
+        >
+          <option value="project">{t("settings.boardModeProject")}</option>
+        </select>
       </div>
 
       {(error || lastResult) && (
@@ -276,6 +325,8 @@ function BoardApp() {
         selected={selected}
         onSelect={setSelected}
         accounts={accountMap}
+        boardMode={settings?.boardMode ?? "project"}
+        projectStatuses={projectStatuses}
       />
 
       {selectedTask && (

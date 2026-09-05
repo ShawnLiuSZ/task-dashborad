@@ -25,12 +25,19 @@ export default function SettingsPanel({
   const [ghPath, setGhPath] = useState(settings.ghPath);
   const [saving, setSaving] = useState(false);
   const [err, setErr] = useState<string | null>(null);
+  // v0.3.22+：Project Status 诊断 + 项目列表。
+  const [diagBusy, setDiagBusy] = useState(false);
+  const [diagMsg, setDiagMsg] = useState<{ ok: boolean; text: string } | null>(null);
+  const [diagAccountId, setDiagAccountId] = useState<number | null>(
+    settings.accounts.find((a) => a.isDefault)?.id ?? settings.accounts[0]?.id ?? null,
+  );
+  const [projects, setProjects] = useState<any[]>([]);
 
   // v0.3.16+：多账号管理。
   const [accounts, setAccounts] = useState<Account[]>(settings.accounts);
   const [addingAccount, setAddingAccount] = useState(false);
   const [newLabel, setNewLabel] = useState("");
-  const [newOrg, setNewOrg] = useState(settings.org || "FoodsUp-Inc");
+  const [newOrg, setNewOrg] = useState(settings.org || "");
   const [accountMsg, setAccountMsg] = useState<string | null>(null);
   const [testingAccountId, setTestingAccountId] = useState<number | null>(null);
 
@@ -69,6 +76,42 @@ export default function SettingsPanel({
       setErr(String(e));
     } finally {
       setSaving(false);
+    }
+  };
+
+  // v0.3.22+：诊断 Project Status 拉取（排查任务显示「未标注」）。
+  const diagnoseProject = async () => {
+    if (diagAccountId == null) {
+      setDiagMsg({ ok: false, text: t("settings.projectDiagDefaultAcc") });
+      return;
+    }
+    setDiagBusy(true);
+    setDiagMsg(null);
+    try {
+      const res = await api.diagnoseProjectStatus(diagAccountId);
+      const projs = (res.projects ?? []) as any[];
+      const statusKeys = Object.keys(res.sample_statuses ?? {});
+      setDiagMsg({
+        ok: true,
+        text:
+          `组织 ${res.org} / 用户 ${res.login}\n` +
+          `发现 ${projs.length} 个 Project：${projs.map((p: any) => p.name).join("、") || "（无）"}\n` +
+          `已拉取 Status ${res.status_count} 条` +
+          (statusKeys.length ? `，示例: ${statusKeys.slice(0, 8).join("、")}` : ""),
+      });
+    } catch (e) {
+      setDiagMsg({ ok: false, text: String(e) });
+    } finally {
+      setDiagBusy(false);
+    }
+  };
+
+  // 加载某账号的已存储项目列表。
+  const loadProjects = async (accountId: number) => {
+    try {
+      setProjects(await api.listProjects(accountId));
+    } catch {
+      setProjects([]);
     }
   };
 
@@ -231,7 +274,7 @@ export default function SettingsPanel({
                       )}
                     </div>
                     <div className="muted small">
-                      @{a.login} · {a.org} ·{" "}
+                      @{a.login}{a.org ? ` · ${a.org}` : ""} ·{" "}
                       {a.hasPat ? (
                         t("settings.authorized")
                       ) : (
@@ -313,7 +356,7 @@ export default function SettingsPanel({
                         oauthRunRef.current += 1;
                         setAddingAccount(false);
                         setNewLabel("");
-                        setNewOrg(settings.org || "FoodsUp-Inc");
+                        setNewOrg(settings.org || "");
                       }}
                     >
                       {t("btn.cancel")}
@@ -360,7 +403,7 @@ export default function SettingsPanel({
                       setOauthMsg(null);
                       setAddingAccount(false);
                       setNewLabel("");
-                      setNewOrg(settings.org || "FoodsUp-Inc");
+                      setNewOrg(settings.org || "");
                     }}
                   >
                     {t("btn.done")}
@@ -377,6 +420,50 @@ export default function SettingsPanel({
             {t("settings.accountsHint")}
           </div>
           {accountMsg && <div className="banner ok inline">{accountMsg}</div>}
+        </div>
+
+        <div className="field">
+          <label>{t("settings.projectDiag")}</label>
+          <div className="row" style={{ marginTop: 4 }}>
+            <select
+              className="select"
+              value={diagAccountId ?? ""}
+              onChange={(e) => {
+                const id = Number(e.target.value);
+                setDiagAccountId(id);
+                void loadProjects(id);
+              }}
+            >
+              {accounts.map((a) => (
+                <option key={a.id} value={a.id}>
+                  {a.label}{a.isDefault ? " ★" : ""}
+                </option>
+              ))}
+            </select>
+            <button
+              className="btn"
+              onClick={() => { void diagnoseProject(); if (diagAccountId) void loadProjects(diagAccountId); }}
+              disabled={diagBusy || accounts.length === 0}
+            >
+              {diagBusy ? t("settings.loading") : t("settings.projectDiag")}
+            </button>
+          </div>
+          <div className="muted small">{t("settings.projectDiagHint")}</div>
+          {projects.length > 0 && (
+            <div className="project-list" style={{ marginTop: 6 }}>
+              {projects.map((p: any) => (
+                <div key={p.id} className="project-row">
+                  <span className="project-name">{p.name}</span>
+                  <span className="muted small">{p.numberOfItems} items · {p.ownerType}</span>
+                </div>
+              ))}
+            </div>
+          )}
+          {diagMsg && (
+            <div className={`banner ${diagMsg.ok ? "ok" : "error"} inline diag-banner`}>
+              {diagMsg.text}
+            </div>
+          )}
         </div>
 
         <div className="field">

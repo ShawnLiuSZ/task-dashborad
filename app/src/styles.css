@@ -12,6 +12,28 @@
   --amber-text: #8a5a00;
   --teal-bg: #dcf3ec;
   --teal-text: #0b6b4f;
+
+  /* 20 status colors — 高对比度排列，相邻色相差距≥30° */
+  --status-0: #e11d48;
+  --status-1: #0891b2;
+  --status-2: #65a30d;
+  --status-3: #7c3aed;
+  --status-4: #ea580c;
+  --status-5: #0d9488;
+  --status-6: #c026d3;
+  --status-7: #ca8a04;
+  --status-8: #2563eb;
+  --status-9: #dc2626;
+  --status-10: #059669;
+  --status-11: #9333ea;
+  --status-12: #e11d48;
+  --status-13: #0284c7;
+  --status-14: #16a34a;
+  --status-15: #a855f7;
+  --status-16: #f97316;
+  --status-17: #14b8a6;
+  --status-18: #d946ef;
+  --status-19: #eab308;
 }
 
 * {
@@ -126,6 +148,32 @@ body {
   color: #a32d2d;
 }
 
+/* v0.3.22+：Project Status 诊断结果（多行文本）。 */
+.diag-banner {
+  white-space: pre-line;
+}
+
+/* v0.3.22+：账号下的项目列表。 */
+.project-list {
+  border: 0.5px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+}
+.project-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 10px;
+  border-bottom: 0.5px solid var(--border);
+}
+.project-row:last-child {
+  border-bottom: none;
+}
+.project-name {
+  font-size: 12px;
+  font-weight: 500;
+}
+
 /* v0.3.15+：设置面板的 PAT 块专用样式。 */
 .pat-status {
   margin: 6px 0;
@@ -235,6 +283,50 @@ body {
   background: #0b6b4f;
 }
 
+/* 20 status colors for column dots */
+.dot-status-0 { background: var(--status-0); }
+.dot-status-1 { background: var(--status-1); }
+.dot-status-2 { background: var(--status-2); }
+.dot-status-3 { background: var(--status-3); }
+.dot-status-4 { background: var(--status-4); }
+.dot-status-5 { background: var(--status-5); }
+.dot-status-6 { background: var(--status-6); }
+.dot-status-7 { background: var(--status-7); }
+.dot-status-8 { background: var(--status-8); }
+.dot-status-9 { background: var(--status-9); }
+.dot-status-10 { background: var(--status-10); }
+.dot-status-11 { background: var(--status-11); }
+.dot-status-12 { background: var(--status-12); }
+.dot-status-13 { background: var(--status-13); }
+.dot-status-14 { background: var(--status-14); }
+.dot-status-15 { background: var(--status-15); }
+.dot-status-16 { background: var(--status-16); }
+.dot-status-17 { background: var(--status-17); }
+.dot-status-18 { background: var(--status-18); }
+.dot-status-19 { background: var(--status-19); }
+
+/* 20 status colors for column backgrounds (very light tint) */
+.column-status-0 { border-top: 3px solid var(--status-0); }
+.column-status-1 { border-top: 3px solid var(--status-1); }
+.column-status-2 { border-top: 3px solid var(--status-2); }
+.column-status-3 { border-top: 3px solid var(--status-3); }
+.column-status-4 { border-top: 3px solid var(--status-4); }
+.column-status-5 { border-top: 3px solid var(--status-5); }
+.column-status-6 { border-top: 3px solid var(--status-6); }
+.column-status-7 { border-top: 3px solid var(--status-7); }
+.column-status-8 { border-top: 3px solid var(--status-8); }
+.column-status-9 { border-top: 3px solid var(--status-9); }
+.column-status-10 { border-top: 3px solid var(--status-10); }
+.column-status-11 { border-top: 3px solid var(--status-11); }
+.column-status-12 { border-top: 3px solid var(--status-12); }
+.column-status-13 { border-top: 3px solid var(--status-13); }
+.column-status-14 { border-top: 3px solid var(--status-14); }
+.column-status-15 { border-top: 3px solid var(--status-15); }
+.column-status-16 { border-top: 3px solid var(--status-16); }
+.column-status-17 { border-top: 3px solid var(--status-17); }
+.column-status-18 { border-top: 3px solid var(--status-18); }
+.column-status-19 { border-top: 3px solid var(--status-19); }
+
 .column-body {
   flex: 1 1 auto;
   overflow-y: auto;
@@ -311,6 +403,28 @@ body {
   border-radius: 4px;
 }
 
+/* 20 repo color classes — 复用 status 色系，浅底深字 */
+.repo-0 { background: #fff1f2; color: #be123c; }
+.repo-1 { background: #ecfeff; color: #0e7490; }
+.repo-2 { background: #f7fee7; color: #3f6212; }
+.repo-3 { background: #f5f3ff; color: #6d28d9; }
+.repo-4 { background: #fff7ed; color: #c2410c; }
+.repo-5 { background: #f0fdfa; color: #0f766e; }
+.repo-6 { background: #fdf4ff; color: #a21caf; }
+.repo-7 { background: #fefce8; color: #a16207; }
+.repo-8 { background: #eff6ff; color: #1d4ed8; }
+.repo-9 { background: #fef2f2; color: #b91c1c; }
+.repo-10 { background: #ecfdf5; color: #047857; }
+.repo-11 { background: #faf5ff; color: #7e22ce; }
+.repo-12 { background: #fff1f2; color: #be123c; }
+.repo-13 { background: #f0f9ff; color: #0369a1; }
+.repo-14 { background: #f0fdf4; color: #15803d; }
+.repo-15 { background: #faf5ff; color: #9333ea; }
+.repo-16 { background: #fff7ed; color: #c2410c; }
+.repo-17 { background: #f0fdfa; color: #0f766e; }
+.repo-18 { background: #fdf4ff; color: #a21caf; }
+.repo-19 { background: #fefce8; color: #a16207; }
+
 .num {
   font-size: 11px;
   color: var(--text-3);
@@ -330,9 +444,41 @@ body {
 }
 
 /* card-top 内状态徽章靠右对齐（「★我的」之后、推到行尾）。 */
-.card-top .gh-status {
+.card-top .gh-status,
+.card-top .gh-state {
   margin-left: auto;
   flex: 0 0 auto;
+}
+
+/* GitHub Issue 状态徽章：open / closed */
+.gh-state {
+  font-size: 10px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  background: var(--surface-2);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 70px;
+}
+
+.card-top .gh-state {
+  margin-left: 4px;
+  flex: 0 0 auto;
+}
+
+.gh-state-open {
+  background: #d4edda;
+  color: #155724;
+  border-color: #c3e6cb;
+}
+
+.gh-state-closed {
+  background: #f8d7da;
+  color: #721c24;
+  border-color: #f5c6cb;
 }
 
 /* ===== gh_status 五类配色（浅底深字，与看板列色语义一致） ===== */
@@ -365,6 +511,28 @@ body {
   color: #b42323;
   border-color: #f3bcbc;
 }
+
+/* 20 status colors for project status tags and column dots — 高对比度 */
+.gh-status-0 { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.gh-status-1 { background: #ecfeff; color: #0e7490; border-color: #a5f3fc; }
+.gh-status-2 { background: #f7fee7; color: #3f6212; border-color: #d9f99d; }
+.gh-status-3 { background: #f5f3ff; color: #6d28d9; border-color: #ddd6fe; }
+.gh-status-4 { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.gh-status-5 { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+.gh-status-6 { background: #fdf4ff; color: #a21caf; border-color: #f0abfc; }
+.gh-status-7 { background: #fefce8; color: #a16207; border-color: #fef08a; }
+.gh-status-8 { background: #eff6ff; color: #1d4ed8; border-color: #bfdbfe; }
+.gh-status-9 { background: #fef2f2; color: #b91c1c; border-color: #fecaca; }
+.gh-status-10 { background: #ecfdf5; color: #047857; border-color: #a7f3d0; }
+.gh-status-11 { background: #faf5ff; color: #7e22ce; border-color: #e9d5ff; }
+.gh-status-12 { background: #fff1f2; color: #be123c; border-color: #fecdd3; }
+.gh-status-13 { background: #f0f9ff; color: #0369a1; border-color: #bae6fd; }
+.gh-status-14 { background: #f0fdf4; color: #15803d; border-color: #bbf7d0; }
+.gh-status-15 { background: #faf5ff; color: #9333ea; border-color: #e9d5ff; }
+.gh-status-16 { background: #fff7ed; color: #c2410c; border-color: #fed7aa; }
+.gh-status-17 { background: #f0fdfa; color: #0f766e; border-color: #99f6e4; }
+.gh-status-18 { background: #fdf4ff; color: #a21caf; border-color: #f0abfc; }
+.gh-status-19 { background: #fefce8; color: #a16207; border-color: #fef08a; }
 
 /* v0.3.17+：issue 状态独立行（标题下方），左对齐、不与标题行挤占。
    （后调整：状态徽章回到 card-top「★我的」之后，本行样式保留仅供回退参考。） */
