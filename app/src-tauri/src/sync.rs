@@ -536,7 +536,7 @@ mod tests {
     #[ignore]
     fn test_headless_sync_pr_linkage() {
         let prod = std::path::Path::new(
-            "/Users/liushizhao/Library/Application Support/com.liushizhao.taskboard/taskboard.db",
+            "/Users/liushizhao/Library/Application Support/com.shawnliu.taskboard/taskboard.db",
         );
         assert!(
             prod.exists(),

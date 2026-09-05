@@ -100,4 +100,4 @@ clear_session(issue="fad-backend#1247")
 ## 4. 注意事项
 - 所有工具**只对本地数据库生效**，不会向 GitHub 推送任何变更、不触发任何通知。
 - `issue` 必须是看板里已存在的任务（同步自 `org:FoodsUp-Inc` 的 open issue）；若返回「任务不存在」，先 `list_my_tasks` 确认 key 是否正确（注意是 `repo#number`，不含 owner）。
-- 数据库文件默认 `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`，可由环境变量 `TASKBOARD_DB` 覆盖。
+- 数据库文件默认 `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`，可由环境变量 `TASKBOARD_DB` 覆盖。

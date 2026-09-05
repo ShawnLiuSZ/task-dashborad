@@ -100,4 +100,4 @@ clear_session(issue="fad-backend#1247")
 ## 4. Notes
 - All tools **only affect the local database**; they push nothing to GitHub and trigger no notifications.
 - `issue` must be a task already on the board (synced from `org:FoodsUp-Inc` open issues); if it returns "task not found", first `list_my_tasks` to confirm the key (note it's `repo#number`, without the owner).
-- The database file defaults to `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`, overridable via the `TASKBOARD_DB` environment variable.
+- The database file defaults to `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`, overridable via the `TASKBOARD_DB` environment variable.

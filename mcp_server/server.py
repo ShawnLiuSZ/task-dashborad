@@ -27,7 +27,7 @@ Tools
 - `owner/repo#number`      e.g. `FoodsUp-Inc/fad-backend#1234`
 - GitHub URL               e.g. `https://github.com/FoodsUp-Inc/fad-backend/issues/1234`
 
-数据库路径：默认 `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`，
+数据库路径：默认 `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`，
 可用环境变量 `TASKBOARD_DB` 覆盖。
 """
 
@@ -41,7 +41,7 @@ import time
 DB_PATH = os.environ.get(
     "TASKBOARD_DB",
     os.path.expanduser(
-        "~/Library/Application Support/com.liushizhao.taskboard/taskboard.db"
+        "~/Library/Application Support/com.shawnliu.taskboard/taskboard.db"
     ),
 )
 
@@ -367,7 +367,7 @@ def handle(msg):
             "result": {
                 "protocolVersion": "2024-11-05",
                 "capabilities": {"tools": {}},
-                "serverInfo": {"name": "taskboard", "version": "0.3.18"},
+                "serverInfo": {"name": "taskboard", "version": "0.3.19"},
             },
         }
 

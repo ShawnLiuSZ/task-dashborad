@@ -4,6 +4,7 @@ import { fmtTime, I18nProvider, useI18n } from "./i18n";
 import Board from "./components/Board";
 import DetailPanel from "./components/DetailPanel";
 import SettingsPanel from "./components/SettingsPanel";
+import AboutPanel from "./components/AboutPanel";
 import type { Account, Settings as SettingsT, Task } from "./types";
 
 export default function App() {
@@ -21,6 +22,7 @@ function BoardApp() {
   const [syncing, setSyncing] = useState(false);
   const [settings, setSettings] = useState<SettingsT | null>(null);
   const [showSettings, setShowSettings] = useState(false);
+  const [showAbout, setShowAbout] = useState(false);
   const [ownership, setOwnership] = useState("");
   const [query, setQuery] = useState("");
   const [repo, setRepo] = useState("");
@@ -204,6 +206,9 @@ function BoardApp() {
           <span className="muted small">
             {t("topbar.lastSync", { time: fmtTime(settings?.lastSyncAt ?? 0, lang) })}
           </span>
+          <button className="btn" onClick={() => setShowAbout(true)}>
+            {t("btn.about")}
+          </button>
           <button className="btn" onClick={() => setShowSettings(true)}>
             {t("btn.settings")}
           </button>
@@ -302,6 +307,12 @@ function BoardApp() {
           onAccountsChanged={() => {
             void loadSettings();
           }}
+        />
+      )}
+
+      {showAbout && (
+        <AboutPanel
+          onClose={() => setShowAbout(false)}
         />
       )}
     </div>

@@ -49,7 +49,7 @@ Release builds are produced automatically by GitHub Actions for all three platfo
 | Search / repo filter | Top search filters live by **repo name / number / title**; repo dropdown scopes by repo; "Reset" on the right clears all filters |
 | Interrupted session | Select a card → enter a session id + pick an agent (claude-code / workbuddy / doubao / opencode / codex / zcode / gemini-cli / cursor / aider / qwen-code, etc.) → record; copyable and clearable |
 | Handoff task | Select a card → fill details in the "Handoff" section and save (can later be written automatically by connected agents when they recognize a "create handoff task" intent) |
-| Local data | `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db` |
+| Local data | `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db` |
 
 ### Key Constraint
 
@@ -74,7 +74,7 @@ PRD §6 planned a "MCP Server + Skill" so AI agents automatically maintain the b
 **Two run modes (same tool contract)**:
 
 1. **Built-in binary (recommended, from v0.3.12)**: the `taskboard` binary has a new `mcp` subcommand — `main.rs` enters a stdio JSON-RPC loop directly when argv contains `mcp`, **without launching the GUI**. It reuses the **exact same** `db.rs` schema and the same `taskboard.db` as the App — **zero Python dependency, no scattered folders, no schema drift**. Install the app and you have MCP built in; point mcp.json straight at the in-app binary (see config below).
-2. **Standalone `server.py` (portable / dev fallback)**: `mcp_server/server.py` remains — using **only the Python standard library** (handwritten JSON-RPC 2.0 + LSP-style `Content-Length` framing), no third-party deps. It lets agents read/write the same database on non-macOS machines or before the app is installed; its tools stay compatible with the built-in binary. The default DB path is `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db` (same for the built-in binary), overridable via the `TASKBOARD_DB` env var; on startup it idempotently backfills the `branch` / `handoff` columns (matching the App's `db.rs::init` migration), so it works **even if the App has never launched**.
+2. **Standalone `server.py` (portable / dev fallback)**: `mcp_server/server.py` remains — using **only the Python standard library** (handwritten JSON-RPC 2.0 + LSP-style `Content-Length` framing), no third-party deps. It lets agents read/write the same database on non-macOS machines or before the app is installed; its tools stay compatible with the built-in binary. The default DB path is `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db` (same for the built-in binary), overridable via the `TASKBOARD_DB` env var; on startup it idempotently backfills the `branch` / `handoff` columns (matching the App's `db.rs::init` migration), so it works **even if the App has never launched**.
 
 **Provided tools** (aligned with PRD §6.2):
 
@@ -126,4 +126,4 @@ The MCP Server only provides tools. To make agents call them **automatically** o
 - [`docs/CHANGELOG.md`](./docs/CHANGELOG.md) — per-version update & fix log (v0.3.1 → v0.3.15)
 - [`docs/v0.3.15-pat-auth.md`](./docs/v0.3.15-pat-auth.md) — v0.3.15 PAT auth & visual polish design doc (gh replacement, card colors, multi-account plan)
 
-> Version v0.3.18 · Local cross-platform app (Windows / macOS / Linux), 2026-09-05
+> Version v0.3.19 · Local cross-platform app (Windows / macOS / Linux), 2026-09-05

@@ -49,7 +49,7 @@ npm run tauri build    # 产出当前平台的 release 安装包
 | 搜索 / 仓库筛选 | 顶部搜索框按 **仓库名 / 编号 / 标题** 实时过滤；仓库下拉按仓库隔离；右侧「重置」一键清除所有筛选                                                                                              |
 | 中断会话      | 选中卡片 → 输入 session id + 选 agent（claude-code / workbuddy / doubao / opencode / codex / zcode / gemini-cli / cursor / aider / qwen-code 等）→ 记录；可复制、可清空 |
 | 交接任务      | 选中卡片 → 「交接任务」区块录入详情并保存（后续可由接入的 agent 在识别「生成交接任务」类意图时自动写入）                                                                                           |
-| 本地数据      | `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`                                                                               |
+| 本地数据      | `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`                                                                               |
 
 ### 关键约束
 
@@ -74,7 +74,7 @@ PRD §6 规划了「MCP Server + Skill」让 AI Agent 在执行任务时自动�
 **两种运行形态（同一份工具契约）**：
 
 1. **内置二进制（推荐，v0.3.12 起）**：`taskboard` 二进制新增 `mcp` 子命令——`main.rs` 在 argv 含 `mcp` 时直接进入 stdio JSON-RPC 循环，**不启动 GUI**。它复用与 App **完全相同的** `db.rs` schema 与同一份 `taskboard.db`，**零 Python 依赖、无散落文件夹、无 schema 漂移**。装了 app 即自带 MCP，mcp.json 直接指向 app 内二进制即可（见下方配置）。
-2. **独立** **`server.py`（便携 / 开发兜底）**：`mcp_server/server.py` 仍保留——**仅用 Python 标准库**（手写 JSON-RPC 2.0 + LSP 风格 `Content-Length` 分帧），无第三方依赖。适用于非 macOS / 未装 app 时让 Agent 读写同一数据库；其工具与内置二进制保持兼容。数据库路径默认 `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`（内置二进制同理），可用环境变量 `TASKBOARD_DB` 覆盖；启动时会幂等补齐 `branch` / `handoff` 两列（与 App 的 `db.rs::init` 迁移一致），故**即使 App 还没启动过也能直接用**。
+2. **独立** **`server.py`（便携 / 开发兜底）**：`mcp_server/server.py` 仍保留——**仅用 Python 标准库**（手写 JSON-RPC 2.0 + LSP 风格 `Content-Length` 分帧），无第三方依赖。适用于非 macOS / 未装 app 时让 Agent 读写同一数据库；其工具与内置二进制保持兼容。数据库路径默认 `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`（内置二进制同理），可用环境变量 `TASKBOARD_DB` 覆盖；启动时会幂等补齐 `branch` / `handoff` 两列（与 App 的 `db.rs::init` 迁移一致），故**即使 App 还没启动过也能直接用**。
 
 **提供的工具**（与 PRD §6.2 对齐）：
 
@@ -131,5 +131,5 @@ MCP Server 只提供工具；要让 Agent 在「开始 / 中断 / 说『生成�
 
 - [`docs/v0.3.15-pat-auth.md`](./docs/v0.3.15-pat-auth.md) — v0.3.15 PAT 认证与 visual polish 设计文档（gh 替换、卡片配色、多账号规划）
 
-> 版本 v0.3.18 · 本地跨平台桌面 App（Windows / macOS / Linux），2026-09-05
+> 版本 v0.3.19 · 本地跨平台桌面 App（Windows / macOS / Linux），2026-09-05
 

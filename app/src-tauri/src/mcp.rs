@@ -5,7 +5,7 @@
 //! Cursor …）能直接读写与 Tauri 应用**同一份**本地 SQLite 数据库，无需独立的
 //! Python 进程、无散落文件夹、无 schema 漂移。
 //!
-//! 数据库路径：默认 `~/Library/Application Support/com.liushizhao.taskboard/taskboard.db`
+//! 数据库路径：默认 `~/Library/Application Support/com.shawnliu.taskboard/taskboard.db`
 //! （与 `db.rs::db_path` 一致），可用 `TASKBOARD_DB` 环境变量覆盖。
 //!
 //! 工具（与 `mcp_server/server.py` 保持兼容）：
@@ -22,7 +22,7 @@ use rusqlite::Connection;
 use serde_json::{json, Map, Value};
 
 const PROTOCOL_VERSION: &str = "2024-11-05";
-const SERVER_VERSION: &str = "0.3.18";
+const SERVER_VERSION: &str = "0.3.19";
 
 /// 返回给 agent 的列（与 `commands.rs::Task` 顺序兼容的子集）。
 const SELECT_COLS: &str =

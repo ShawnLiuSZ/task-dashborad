@@ -2,6 +2,22 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.19 (2026-09-05) — About page + check for updates (#21)**
+
+  - Background: the app had no in-app version display or update entry, so users could not tell the current version or trigger an upgrade.
+
+  - New "About" page (opened via the top-bar "About" button):
+    - Shows the current version (read from the Rust package version on the backend, not hard-coded in the frontend)
+    - "Check for Updates" button: calls the GitHub Releases API `releases/latest`, compares current/latest, and shows "You are up to date" or "New version available" with a one-click link to download
+    - The repository name is now a clickable link that opens `https://github.com/ShawnLiuSZ/task-dashborad` in the system browser
+    - Built-in bilingual support (i18n keys `about.*` / `btn.about`)
+
+  - Technical notes: `check_latest_release` only reads the public repo (no PAT needed); it uses `spawn_blocking` so the blocking-reqwest request does not stall the main thread.
+
+  - Version number unified to 0.3.19 (Cargo / package / tauri.conf / built-in MCP / portable server.py).
+
+  - **Bundle Identifier changed to `com.shawnliu.taskboard`** (was `com.liushizhao.taskboard`): the default data directory is now `~/Library/Application Support/com.shawnliu.taskboard/`. ⚠️ To keep existing local data, manually move `taskboard.db` from the old directory, or point `TASKBOARD_DB` at the old DB.
+
 - **v0.3.18 (2026-09-05) — Establish and run a version-release process (first unified version number)**
 
   - Background (#5): starting from v0.3.17, establish a clear SemVer release process so the Rust/Cargo, frontend package.json, Tauri config, built-in MCP, portable `mcp_server/server.py`, and doc version numbers all stay consistent, and provide a reproducible base for future releases.

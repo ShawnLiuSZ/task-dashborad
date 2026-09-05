@@ -216,6 +216,9 @@ pub fn run() {
             commands::save_oauth_client_id,
             commands::device_login_start,
             commands::device_login_poll,
+            // v0.3.19+：关于页面 —— 当前版本号 + 检查更新。
+            commands::get_app_version,
+            commands::check_latest_release,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");
