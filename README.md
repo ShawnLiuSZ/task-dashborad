@@ -4,15 +4,15 @@
   <img src="social-preview.png" alt="TaskBoard — GitHub 任务看板" width="720" />
 </p>
 
-每天自动汇聚 GitHub 上「分配给我 / 与我相关」的任务到**本地 Mac 应用**看板，状态随 AI 执行自动流转，并支持记录可恢复的中断会话（session id）。
+每天自动汇聚 GitHub 上「分配给我 / 与我相关」的任务到**本地跨平台桌面应用**（Windows / macOS / Linux）看板，状态随 AI 执行自动流转，并支持记录可恢复的中断会话（session id）。
 
 目前处于 ***开发者预览*** 阶段，正在快速迭代。未来将出现破坏兼容性的变更。
 
 > **最终形态（v0.3）**：已落地为**本地 Tauri 桌面应用**（`app/` 目录），数据存本地 SQLite，**不创建 GitHub Issue / Project，不写回 GitHub**。此前 PRD 讨论的「GitHub Projects v2 看板」方案因组织限制与个人偏好已放弃，演进记录见 [`PRD.md`](./PRD.md)。
 
-## 应用：TaskBoard（Mac）
+## 应用：TaskBoard（Windows / macOS / Linux）
 
-原生 macOS 菜单栏常驻应用，前端 React、后端 Rust（rusqlite 本地数据库），打包为 `.app`。
+跨平台 Tauri 桌面应用，前端 React、后端 Rust（rusqlite 本地数据库）。macOS 上为菜单栏常驻应用（系统托盘），Windows / Linux 亦以托盘图标常驻。
 
 ### 构建与运行
 
@@ -20,12 +20,12 @@
 cd app
 npm install            # 首次安装前端依赖
 npm run tauri dev      # 开发模式（前端热更新）
-npm run tauri build    # 产出 release .app + .dmg
+npm run tauri build    # 产出当前平台的 release 安装包
 ```
 
-产物位置：`app/src-tauri/target/release/bundle/macos/TaskBoard.app`
+产物位置（按当前平台）：`app/src-tauri/target/release/bundle/{macos,debian,rpm,nsis}/TaskBoard*`
 
-> 未配置 Apple 开发者签名。首次打开若被 Gatekeeper 拦截：右键「打开」，或在终端执行
+> macOS 打包未配置 Apple 开发者签名。首次打开若被 Gatekeeper 拦截：右键「打开」，或在终端执行
 > `xattr -cr "/path/to/TaskBoard.app"` 后双击。
 
 ### 在线自动打包

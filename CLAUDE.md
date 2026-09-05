@@ -1,6 +1,6 @@
 # CLAUDE.md — TaskBoard 项目
 
-本仓库是 **TaskBoard**：纯本地 macOS（Tauri）任务看板，数据存本地 SQLite，**绝不写回 GitHub**。
+本仓库是 **TaskBoard**：纯本地跨平台桌面（Windows / macOS / Linux，Tauri）任务看板，数据存本地 SQLite，**绝不写回 GitHub**。
 
 ## 自动维护看板（处理 issue 时请遵守）
 
