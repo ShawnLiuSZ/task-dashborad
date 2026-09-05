@@ -1,4 +1,5 @@
 import { COLUMNS, type Account, type StatusKey, type Task } from "../types";
+import { useT } from "../i18n";
 import TaskCard from "./TaskCard";
 
 interface Props {
@@ -10,7 +11,8 @@ interface Props {
 }
 
 export default function Board({ tasks, selected, onSelect, accounts }: Props) {
-  const byStatus = (s: StatusKey) => tasks.filter((t) => t.status === s);
+  const t = useT();
+  const byStatus = (s: StatusKey) => tasks.filter((task) => task.status === s);
 
   return (
     <div className="board">
@@ -20,11 +22,11 @@ export default function Board({ tasks, selected, onSelect, accounts }: Props) {
           <section key={col.key} className={`column column-${col.key}`}>
             <div className="column-head">
               <span className={`dot dot-${col.key}`} />
-              <span className="column-title">{col.label}</span>
+              <span className="column-title">{t(`status.${col.key}`)}</span>
               <span className="count">{items.length}</span>
             </div>
             <div className="column-body">
-              {items.length === 0 && <div className="empty">{col.hint}</div>}
+              {items.length === 0 && <div className="empty">{t(`hint.${col.key}`)}</div>}
               {items.map((t) => (
                 <TaskCard
                   key={t.key}

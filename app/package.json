@@ -8,6 +8,7 @@
     "build": "tsc --noEmit && vite build",
     "test": "vitest run",
     "preview": "vite preview",
+    "i18n:check": "node scripts/check-i18n.mjs",
     "tauri": "tauri"
   },
   "dependencies": {

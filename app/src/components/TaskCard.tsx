@@ -1,6 +1,7 @@
 import type { MouseEvent } from "react";
 import type { Task } from "../types";
 import { api } from "../api";
+import { useT } from "../i18n";
 
 interface Props {
   task: Task;
@@ -28,6 +29,7 @@ function repoHue(repo: string): number {
 }
 
 export default function TaskCard({ task, accountLabel, active, onClick }: Props) {
+  const t = useT();
   const mine = task.ownership === "assigned";
   const assigneeNames = task.assignees
     ? task.assignees.split(",").filter(Boolean)
@@ -43,7 +45,7 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
       {/* v0.3.17+：账号徽章独占卡片最顶行（repo#编号 行的上一行）。 */}
       {accountLabel && (
         <div className="account-row-top">
-          <span className="account-badge" title={`账号：${accountLabel}`}>
+          <span className="account-badge" title={t("card.accountTitle", { label: accountLabel ?? "" })}>
             @{accountLabel}
           </span>
         </div>
@@ -61,7 +63,7 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
         </span>
         <span className="num">#{task.number}</span>
         {mine && (
-          <span className="mine-badge" title="分配给我">
+          <span className="mine-badge" title={t("ownership.assigned")}>
             ★
           </span>
         )}
@@ -77,7 +79,7 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
           else if (s.includes("取消")) cls = "gh-status gh-status-canceled";
           else if (s.includes("完成") || s.includes("上线")) cls = "gh-status gh-status-done";
           return (
-            <span className={cls} title="GitHub Project 状态">
+            <span className={cls} title={t("card.ghStatusTitle")}>
               {s}
             </span>
           );
@@ -90,7 +92,7 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
       <div className="meta-row">
         {assigneeNames.length > 0 && (
           <span className="assignee-info">
-            <span className="assignee-label">分配人</span>
+            <span className="assignee-label">{t("card.assigneeLabel")}</span>
             <span className="assignee-names">
               {assigneeNames.map((a) => (
                 <span key={a} className="assignee-name">
@@ -101,14 +103,14 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
           </span>
         )}
         {task.mentioned && (
-          <span className="mention-badge" title="评论区有人 @我">
-            📣 @我
+          <span className="mention-badge" title={t("card.mentionedTitle")}>
+            {t("card.mentionedBadge")}
           </span>
         )}
         {/* 仅未认领的任务在此行显示"无人认领"标识。 */}
         {task.ownership === "notassignee" && (
-          <span className="unassigned-tag" title="该 issue 暂无负责人">
-            无人认领
+          <span className="unassigned-tag" title={t("card.unassignedTitle")}>
+            {t("ownership.notassignee")}
           </span>
         )}
       </div>
@@ -116,7 +118,7 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
       <div className="card-bottom">
         {task.sessionId ? (
           <span className="session">
-            <span className="session-label">会话</span>
+            <span className="session-label">{t("card.sessionLabel")}</span>
             <code>{task.sessionId}</code>
           </span>
         ) : (
@@ -127,24 +129,24 @@ export default function TaskCard({ task, accountLabel, active, onClick }: Props)
         {task.latestCommentUrl && (
           <a
             className="cmt-link"
-            title="跳转到最新评论"
+            title={t("card.commentTitle")}
             href={task.latestCommentUrl}
             onClick={(e) => openExternal(task.latestCommentUrl, e)}
           >
-            💬 新评论
+            {t("card.newComments")}
           </a>
         )}
         {task.prNumber > 0 && task.prUrl && (
           <a
             className="pr-link"
-            title="对应的 PR"
+            title={t("card.prTitle")}
             href={task.prUrl}
             onClick={(e) => openExternal(task.prUrl, e)}
           >
             🔗 PR #{task.prNumber}
           </a>
         )}
-        {task.candidateDone && <span className="candidate-tag">待确认关闭</span>}
+        {task.candidateDone && <span className="candidate-tag">{t("card.candidateTag")}</span>}
       </div>
     </article>
   );

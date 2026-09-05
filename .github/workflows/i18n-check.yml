@@ -1,0 +1,21 @@
+# i18n 一致性校验（Issue #7）：PR 与 push 到 develop / main 时检查两份 locale
+# 的 key 集合、占位符与空翻译，避免未翻译/漏翻译的字符串合入主分支。
+name: i18n-check
+
+on:
+  pull_request:
+  push:
+    branches: [main, develop]
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: 校验 locale 文件
+        run: node app/scripts/check-i18n.mjs
