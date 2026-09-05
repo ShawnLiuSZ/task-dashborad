@@ -213,6 +213,7 @@ function BoardApp() {
               {(settings?.accounts ?? []).map((a) => (
                 <option key={a.id} value={a.id}>
                   @{a.login}
+                  {a.org ? ` (${a.org})` : ""}
                 </option>
               ))}
             </select>
