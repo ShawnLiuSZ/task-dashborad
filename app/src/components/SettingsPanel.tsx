@@ -1,5 +1,6 @@
 import { useRef, useState } from "react";
 import { api } from "../api";
+import { useI18n, type LangMode } from "../i18n";
 import type { Account, DeviceLoginStart, Settings } from "../types";
 
 interface Props {
@@ -18,6 +19,7 @@ export default function SettingsPanel({
   onClose,
   onAccountsChanged,
 }: Props) {
+  const { t, mode, setMode } = useI18n();
   const [minutes, setMinutes] = useState(settings.scheduleMinutes);
   const [ghPath, setGhPath] = useState(settings.ghPath);
   const [saving, setSaving] = useState(false);
@@ -53,7 +55,7 @@ export default function SettingsPanel({
 
   // v0.3.16+：删除账号。
   const deleteAccount = async (id: number) => {
-    if (!confirm("确认删除该账号？其下的任务仍会保留，但卡片上会标记「账号已删除」。")) {
+    if (!confirm(t("settings.deleteConfirm"))) {
       return;
     }
     setErr(null);
@@ -73,7 +75,7 @@ export default function SettingsPanel({
     setErr(null);
     try {
       const res = await api.testAccountPat(id);
-      setAccountMsg(`账号 #${id} 连接正常 · @${res.login}`);
+      setAccountMsg(t("settings.testOk", { id, login: res.login }));
     } catch (e) {
       setAccountMsg(null);
       setErr(String(e));
@@ -88,7 +90,7 @@ export default function SettingsPanel({
     try {
       await api.setDefaultAccount(id);
       onAccountsChanged?.();
-      setAccountMsg(`已设为默认账号`);
+      setAccountMsg(t("settings.defaultSet"));
     } catch (e) {
       setAccountMsg(null);
       setErr(String(e));
@@ -122,12 +124,12 @@ export default function SettingsPanel({
         }
         if (res.status === "success") {
           setOauthPhase("success");
-          setOauthMsg(`登录成功 · 已授权 @${res.login}`);
+          setOauthMsg(t("settings.loginSuccess", { login: res.login }));
           onAccountsChanged?.();
           return;
         }
         setOauthPhase("idle");
-        setOauthMsg(res.message || "登录失败，请重试");
+        setOauthMsg(res.message || t("settings.loginFailed"));
         return;
       }
     } catch (e) {
@@ -149,10 +151,24 @@ export default function SettingsPanel({
   return (
     <div className="modal-mask" onClick={onClose}>
       <div className="modal" onClick={(e) => e.stopPropagation()}>
-        <h3 className="modal-title">设置</h3>
+        <h3 className="modal-title">{t("settings.title")}</h3>
+
+        {/* Issue #7：界面语言切换（跟随系统 / 简体中文 / English），即时生效。 */}
+        <div className="field">
+          <label>{t("settings.language")}</label>
+          <select
+            className="select"
+            value={mode}
+            onChange={(e) => setMode(e.target.value as LangMode)}
+          >
+            <option value="auto">{t("settings.langAuto")}</option>
+            <option value="zh-CN">{t("settings.langZh")}</option>
+            <option value="en-US">{t("settings.langEn")}</option>
+          </select>
+        </div>
 
         <div className="field">
-          <label>定时同步间隔</label>
+          <label>{t("settings.syncInterval")}</label>
           <div className="row">
             <input
               className="input"
@@ -161,7 +177,7 @@ export default function SettingsPanel({
               value={minutes}
               onChange={(e) => setMinutes(Math.max(5, Number(e.target.value) || 5))}
             />
-            <span className="muted">分钟</span>
+            <span className="muted">{t("unit.minutes")}</span>
           </div>
           <div className="presets">
             {PRESETS.map((p) => (
@@ -170,20 +186,18 @@ export default function SettingsPanel({
                 className={`chip${minutes === p ? " on" : ""}`}
                 onClick={() => setMinutes(p)}
               >
-                {p} 分钟
+                {t("settings.presetMinutes", { n: p })}
               </button>
             ))}
           </div>
-          <div className="muted small">
-            应用常驻菜单栏时按此间隔自动同步；关闭应用后不再触发
-          </div>
+          <div className="muted small">{t("settings.intervalHint")}</div>
         </div>
 
         {/* v0.3.16+：多账号管理（v0.3.17 起登录走 Device Flow）。 */}
         <div className="field">
-          <label>GitHub 账号</label>
+          <label>{t("settings.accountsTitle")}</label>
           {accounts.length === 0 ? (
-            <div className="muted small">尚未添加账号</div>
+            <div className="muted small">{t("settings.noAccounts")}</div>
           ) : (
             <div className="account-list">
               {accounts.map((a) => (
@@ -192,15 +206,17 @@ export default function SettingsPanel({
                     <div className="account-row-head">
                       <strong>{a.label}</strong>
                       {a.isDefault && (
-                        <span className="default-tag" title="默认账号">★ 默认</span>
+                        <span className="default-tag" title={t("settings.defaultTitle")}>
+                          {t("settings.defaultTag")}
+                        </span>
                       )}
                     </div>
                     <div className="muted small">
                       @{a.login} · {a.org} ·{" "}
                       {a.hasPat ? (
-                        "已授权"
+                        t("settings.authorized")
                       ) : (
-                        <span className="warn">未授权</span>
+                        <span className="warn">{t("settings.unauthorized")}</span>
                       )}
                     </div>
                   </div>
@@ -209,17 +225,17 @@ export default function SettingsPanel({
                       className="btn small"
                       onClick={() => void testAccount(a.id)}
                       disabled={!a.hasPat || testingAccountId === a.id}
-                      title="测试该账号的 token 是否仍有效"
+                      title={t("settings.testTitle")}
                     >
-                      {testingAccountId === a.id ? "测试中…" : "测试"}
+                      {testingAccountId === a.id ? t("settings.testing") : t("settings.test")}
                     </button>
                     {!a.isDefault && (
                       <button
                         className="btn small"
                         onClick={() => void setDefault(a.id)}
-                        title="设为默认账号"
+                        title={t("settings.setDefaultTitle")}
                       >
-                        设为默认
+                        {t("settings.setDefault")}
                       </button>
                     )}
                     <button
@@ -228,11 +244,11 @@ export default function SettingsPanel({
                       disabled={a.isDefault}
                       title={
                         a.isDefault
-                          ? "默认账号不可删除，请先把另一个账号设为默认"
-                          : "删除该账号"
+                          ? t("settings.cantDeleteDefault")
+                          : t("settings.deleteTitle")
                       }
                     >
-                      删除
+                      {t("btn.delete")}
                     </button>
                   </div>
                 </div>
@@ -246,7 +262,7 @@ export default function SettingsPanel({
               style={{ marginTop: 8 }}
               onClick={() => setAddingAccount(true)}
             >
-              + GitHub 登录添加账号
+              {t("settings.addAccount")}
             </button>
           ) : (
             <div className="account-form">
@@ -254,13 +270,13 @@ export default function SettingsPanel({
                 <>
                   <input
                     className="input wide"
-                    placeholder="账号名称（可留空，默认用 GitHub login）"
+                    placeholder={t("settings.labelPlaceholder")}
                     value={newLabel}
                     onChange={(e) => setNewLabel(e.target.value)}
                   />
                   <input
                     className="input wide"
-                    placeholder="组织（org，如 FoodsUp-Inc）"
+                    placeholder={t("settings.orgPlaceholder")}
                     value={newOrg}
                     onChange={(e) => setNewOrg(e.target.value)}
                   />
@@ -270,7 +286,7 @@ export default function SettingsPanel({
                       onClick={() => void runDeviceLogin(newLabel, newOrg)}
                       disabled={oauthBusy}
                     >
-                      {oauthBusy ? "正在打开浏览器…" : "通过 GitHub 授权登录"}
+                      {oauthBusy ? t("settings.openingBrowser") : t("settings.authorizeLogin")}
                     </button>
                     <button
                       className="btn"
@@ -281,19 +297,19 @@ export default function SettingsPanel({
                         setNewOrg(settings.org || "FoodsUp-Inc");
                       }}
                     >
-                      取消
+                      {t("btn.cancel")}
                     </button>
                   </div>
                   <div className="muted small" style={{ marginTop: 6 }}>
-                    点击后自动打开浏览器，登录 GitHub 并点击 Authorize 即完成——无需注册、无需填任何 ID、无需粘贴 token。
+                    {t("settings.deviceFlowHint")}
                   </div>
                 </>
               )}
 
               {oauthPhase === "code" && oauthStart && (
                 <div className="device-flow">
-                  <div className="muted small">在浏览器中输入以下一次性代码完成授权：</div>
-                  <div className="user-code" title="点击复制">
+                  <div className="muted small">{t("settings.enterCode")}</div>
+                  <div className="user-code" title={t("settings.clickCopy")}>
                     {oauthStart.userCode}
                   </div>
                   <div className="row" style={{ marginTop: 8 }}>
@@ -301,14 +317,14 @@ export default function SettingsPanel({
                       className="btn"
                       onClick={() => void api.openInBrowser(oauthStart.verificationUriComplete)}
                     >
-                      重新打开授权页
+                      {t("settings.reopenAuth")}
                     </button>
                     <button className="btn ghost" onClick={cancelDeviceLogin}>
-                      取消登录
+                      {t("settings.cancelLogin")}
                     </button>
                   </div>
                   <div className="muted small" style={{ marginTop: 6 }}>
-                    等待授权中…（{oauthStart.expiresIn / 60} 分钟内有效）
+                    {t("settings.waitingAuth", { n: Math.round(oauthStart.expiresIn / 60) })}
                   </div>
                 </div>
               )}
@@ -328,7 +344,7 @@ export default function SettingsPanel({
                       setNewOrg(settings.org || "FoodsUp-Inc");
                     }}
                   >
-                    完成
+                    {t("btn.done")}
                   </button>
                 </div>
               )}
@@ -339,32 +355,32 @@ export default function SettingsPanel({
             </div>
           )}
           <div className="muted small" style={{ marginTop: 6 }}>
-            顶栏下拉切换激活账号；视图模式「全部账号」可聚合查看所有账号任务。
-            token 明文存入本地 SQLite——v0.3.17 计划升级为系统 keyring。
+            {t("settings.accountsHint")}
           </div>
           {accountMsg && <div className="banner ok inline">{accountMsg}</div>}
         </div>
 
         <div className="field">
-          <label>gh 可执行文件路径</label>
+          <label>{t("settings.ghPathLabel")}</label>
           <input
             className="input wide"
-            placeholder="留空（v0.3.15 起仅作展示，已不再使用）"
+            placeholder={t("settings.ghPathPlaceholder")}
             value={ghPath}
             onChange={(e) => setGhPath(e.target.value)}
           />
-          <div className="muted small">
-            历史字段，保留兼容；当前同步完全走账号授权 token，不再探测 gh CLI。
+          <div className="muted small">{t("settings.ghPathHint")}</div>
+        </div>
+
+        <div className="field readonly">
+          <label>{t("settings.orgLabel")}</label>
+          <div className="muted">
+            {settings.org}
+            {t("settings.orgHint")}
           </div>
         </div>
 
         <div className="field readonly">
-          <label>组织</label>
-          <div className="muted">{settings.org}（写于 meta.org，可手动改库）</div>
-        </div>
-
-        <div className="field readonly">
-          <label>本地数据库</label>
+          <label>{t("settings.dbLabel")}</label>
           <div className="muted small path">{settings.dbPath}</div>
         </div>
 
@@ -372,10 +388,10 @@ export default function SettingsPanel({
 
         <div className="modal-actions">
           <button className="btn" onClick={onClose}>
-            取消
+            {t("btn.cancel")}
           </button>
           <button className="btn primary" onClick={save} disabled={saving}>
-            {saving ? "保存中…" : "保存"}
+            {saving ? t("btn.saving") : t("btn.save")}
           </button>
         </div>
       </div>

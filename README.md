@@ -51,6 +51,12 @@ npm run tauri build    # 产出 release .app + .dmg
 
 > **session id 与任务状态只存本地 SQLite，绝不写回 GitHub。** 不创建 Issue、不创建 Project、不改 Issue 标题 / label / 评论。
 
+### 界面语言（i18n）
+
+应用支持**简体中文 / English** 双语界面：设置页可切换「跟随系统 / 简体中文 / English」，选择持久化在本地；翻译文件位于 [`app/src/i18n/locales/`](./app/src/i18n/locales/)（`zh-CN.json` / `en-US.json`）。
+
+**贡献翻译**：复制 `en-US.json` 为新语言文件（如 `ja-JP.json`），翻译 value（保留 `{placeholder}` 占位符原样），然后在 `app/src/i18n/index.tsx` 的 `DICTS` 中注册即可。提交前运行 `cd app && npm run i18n:check` 校验两份语言文件的 key 集合与占位符一致；CI（`.github/workflows/i18n-check.yml`）会在 PR 时自动执行同样校验。
+
 ## 设计要点
 
 纯本地、与 GitHub 解耦的核心设计（多源拉取去重、归属三分、四态维护、closed 权威覆盖、PR 反向关联、应用内定时）详见 [`docs/design-and-release.md`](./docs/design-and-release.md)。
