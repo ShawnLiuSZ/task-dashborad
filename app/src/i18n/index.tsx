@@ -107,5 +107,7 @@ export function useT(): I18nValue["t"] {
 /** 本地化时间格式：ts 为秒级时间戳；0 显示「从未 / Never」。 */
 export function fmtTime(ts: number, lang: Lang): string {
   if (!ts) return lang === "en-US" ? "Never" : "从未";
-  return new Date(ts * 1000).toLocaleString(lang, { hour12: false });
+  const d = new Date(ts * 1000);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())} ${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
