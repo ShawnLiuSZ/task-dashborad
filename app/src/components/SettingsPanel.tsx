@@ -1,5 +1,6 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { api } from "../api";
+import { formatCountdownSeconds } from "../utils/format";
 import type { Account, DeviceLoginStart, Settings } from "../types";
 
 interface Props {
@@ -38,6 +39,24 @@ export default function SettingsPanel({
   const [oauthBusy, setOauthBusy] = useState(false);
   // 轮询取消令牌：面板关闭 / 重新发起时 +1，旧循环检测到变化即退出。
   const oauthRunRef = useRef(0);
+  // v0.3.18：#6 授权倒计时（分:秒，无毫秒）。进入 code 阶段后每秒递减直到 0。
+  const [oauthRemaining, setOauthRemaining] = useState(0);
+  useEffect(() => {
+    if (oauthPhase !== "code" || !oauthStart) {
+      setOauthRemaining(0);
+      return;
+    }
+    const runId = oauthRunRef.current;
+    setOauthRemaining(oauthStart.expiresIn);
+    const timer = setInterval(() => {
+      if (oauthRunRef.current !== runId) {
+        clearInterval(timer);
+        return;
+      }
+      setOauthRemaining((prev) => Math.max(0, prev - 1));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [oauthPhase, oauthStart]);
 
   const save = async () => {
     setSaving(true);
@@ -308,7 +327,7 @@ export default function SettingsPanel({
                     </button>
                   </div>
                   <div className="muted small" style={{ marginTop: 6 }}>
-                    等待授权中…（{oauthStart.expiresIn / 60} 分钟内有效）
+                    等待授权中…（{formatCountdownSeconds(oauthRemaining)} 内有效）
                   </div>
                 </div>
               )}
