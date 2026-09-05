@@ -184,14 +184,6 @@ function BoardApp() {
 
   const selectedTask = tasks.find((t) => t.key === selected) ?? null;
 
-  // v0.3.16+：当前激活账号对象（用于顶栏显示）。
-  const activeAccount = useMemo(
-    () =>
-      settings?.accounts.find((a) => a.id === settings.activeAccountId) ??
-      null,
-    [settings],
-  );
-
   return (
     <div className="app">
       <header className="topbar">
@@ -226,14 +218,6 @@ function BoardApp() {
             </select>
           )}
           <span className="muted">
-            {activeAccount
-              ? activeAccount.org
-                ? `${activeAccount.login} @ ${activeAccount.org}`
-                : activeAccount.login
-              : settings?.hasPat === false
-                ? t("topbar.noPat")
-                : t("topbar.notLoggedIn")}
-            {" · "}
             {t("topbar.totalCount", { n: visible.length })}
           </span>
         </div>
