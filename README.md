@@ -131,5 +131,5 @@ MCP Server 只提供工具；要让 Agent 在「开始 / 中断 / 说『生成�
 
 - [`docs/v0.3.15-pat-auth.md`](./docs/v0.3.15-pat-auth.md) — v0.3.15 PAT 认证与 visual polish 设计文档（gh 替换、卡片配色、多账号规划）
 
-> 版本 v0.3.14 · 本地 Mac App，2026-09-04
+> 版本 v0.3.14 · 本地跨平台桌面 App（Windows / macOS / Linux），2026-09-04
 
