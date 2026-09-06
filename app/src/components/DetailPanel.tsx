@@ -223,7 +223,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
           </button>
           {task.prNumber > 0 && task.prUrl && (
             <>
-              <button className="btn" onClick={() => void api.openInBrowser(task.prUrl)}>
+              <button className="btn" onClick={() => openExternal(task.prUrl)}>
                 PR #{task.prNumber}
               </button>
               <button
@@ -235,7 +235,7 @@ export default function DetailPanel({ task, onClose, onChanged }: Props) {
             </>
           )}
           {task.latestCommentUrl && (
-            <button className="btn" onClick={() => void api.openInBrowser(task.latestCommentUrl)}>
+            <button className="btn" onClick={() => openExternal(task.latestCommentUrl)}>
               {t("detail.latestComment")}
             </button>
           )}

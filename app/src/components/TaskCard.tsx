@@ -13,8 +13,8 @@ interface Props {
   repoIndex?: number;
 }
 
-// 在浏览器中打开外链：阻止 webview 自身跳转，改用本机默认浏览器打开。
-function openExternal(url: string, e: MouseEvent) {
+// 在浏览器中打开外链：阻止 webview 自身跳转，改用本机默认浏览器打开（失败经 reportError 可见）。
+function openLink(url: string, e: MouseEvent) {
   e.preventDefault();
   e.stopPropagation();
   openExternal(url);
@@ -108,7 +108,7 @@ export default function TaskCard({ task, accountLabel, active, onClick, repoInde
             className="cmt-link"
             title={t("card.commentTitle")}
             href={task.latestCommentUrl}
-            onClick={(e) => openExternal(task.latestCommentUrl, e)}
+            onClick={(e) => openLink(task.latestCommentUrl, e)}
           >
             {t("card.newComments")}
           </a>
@@ -118,7 +118,7 @@ export default function TaskCard({ task, accountLabel, active, onClick, repoInde
             className="pr-link"
             title={t("card.prTitle")}
             href={task.prUrl}
-            onClick={(e) => openExternal(task.prUrl, e)}
+            onClick={(e) => openLink(task.prUrl, e)}
           >
             🔗 PR #{task.prNumber}
           </a>
