@@ -2,6 +2,11 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.25 (2026-09-06) — Fix disabled "Check for Updates" button (#55)**
+  - **Problem**: the "Check for Updates" button in the About modal was always disabled, so users could never trigger a check manually. Root cause: `AboutPanel` initialised `state` to `{ phase: "loading" }`, reusing one phase for both "not checked yet" and "checking in progress", while the button's `disabled` test was `state.phase === "loading"` — so it was disabled the moment the modal opened.
+  - **Changes**: `AboutPanel.tsx` adds an `idle` initial phase (not checked, clickable) and keeps `loading` strictly for "checking in progress"; removed the redundant `checkedOnce` flag; the button shows "Checking…" and is briefly disabled during a check to prevent double-clicks, then becomes clickable again once the check finishes (success or error); the up-to-date status now shows the concrete version number. `zh-CN.json` / `en-US.json`: `about.upToDate` gained a `{version}` placeholder.
+  - **Acceptance**: the button is clickable as soon as the modal opens; clicking it correctly shows either "up to date vX.Y.Z" or "new version X available (current: Y)" with a download link; the button returns to clickable after the check completes.
+
 - **v0.3.24 (2026-09-05) — Notepad & account system & sync logs & topbar layout (incl. #6/#7/#27/#26/#31/#24/#25/#37/#38/#41/#33/#9/#48)**
   - **Multi-account & account system (#25/#31/#33/#38)**: fixed second-account 422; added an accounts panel (add/remove/switch); deleting an account now cascades clean-up of all its local data; removed the org default switch.
   - **Notepad panel (#9)**: a standalone notes column on the far left of the board.

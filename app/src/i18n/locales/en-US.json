@@ -152,7 +152,7 @@
   "about.versionLabel": "Current version",
   "about.checkUpdate": "Check for Updates",
   "about.checking": "Checking…",
-  "about.upToDate": "You are up to date",
+  "about.upToDate": "You are up to date (v{version})",
   "about.updateAvailable": "New version {latest} available (current: {current})",
   "about.download": "Go to download",
   "about.error": "Update check failed: {error}",

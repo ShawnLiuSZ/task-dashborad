@@ -7,7 +7,9 @@ interface Props {
   onClose: () => void;
 }
 
+/** idle = 尚未检查（按钮可点）；loading = 正在检查（防重复点击）。 */
 type State =
+  | { phase: "idle" }
   | { phase: "loading" }
   | { phase: "ok"; data: CheckUpdate }
   | { phase: "error"; message: string };
@@ -27,8 +29,7 @@ const MCP_SNIPPET = `{
 export default function AboutPanel({ onClose }: Props) {
   const { t } = useI18n();
   const [version, setVersion] = useState<string>("");
-  const [state, setState] = useState<State>({ phase: "loading" });
-  const [checkedOnce, setCheckedOnce] = useState(false);
+  const [state, setState] = useState<State>({ phase: "idle" });
 
   const loadVersion = useCallback(async () => {
     try {
@@ -40,7 +41,6 @@ export default function AboutPanel({ onClose }: Props) {
 
   const check = useCallback(async () => {
     setState({ phase: "loading" });
-    setCheckedOnce(true);
     try {
       const d = await api.checkLatestRelease();
       if (d.error) {
@@ -105,13 +105,13 @@ export default function AboutPanel({ onClose }: Props) {
             </button>
           </div>
 
-          {checkedOnce && state.phase === "loading" && (
+          {state.phase === "loading" && (
             <div className="about-status">{t("about.checking")}</div>
           )}
           {state.phase === "ok" &&
             (state.data.upToDate ? (
               <div className="about-status up-to-date">
-                {"✅"} {t("about.upToDate")}
+                {"✅"} {t("about.upToDate", { version: state.data.current })}
               </div>
             ) : (
               <div className="about-status has-update">
@@ -139,7 +139,7 @@ export default function AboutPanel({ onClose }: Props) {
             {t("btn.close")}
           </button>
           <button className="btn primary" onClick={check} disabled={state.phase === "loading"}>
-            {state.phase === "loading" && checkedOnce ? t("about.checking") : t("about.checkUpdate")}
+            {state.phase === "loading" ? t("about.checking") : t("about.checkUpdate")}
           </button>
         </div>
       </div>
