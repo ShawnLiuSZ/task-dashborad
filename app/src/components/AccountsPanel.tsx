@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { api, openExternal } from "../api";
 import { useI18n } from "../i18n";
 import { formatCountdownSeconds } from "../utils/format";
 import type { Account, DeviceLoginStart, Settings } from "../types";

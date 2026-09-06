@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useState } from "react";
-import { api } from "../api";
+import { api, openExternal } from "../api";
 import { useI18n } from "../i18n";
 import type { CheckUpdate } from "../types";
 

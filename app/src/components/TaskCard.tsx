@@ -1,6 +1,6 @@
 import type { MouseEvent } from "react";
 import type { Task } from "../types";
-import { api } from "../api";
+import { openExternal } from "../api";
 import { useT } from "../i18n";
 
 interface Props {
@@ -17,7 +17,7 @@ interface Props {
 function openExternal(url: string, e: MouseEvent) {
   e.preventDefault();
   e.stopPropagation();
-  void api.openInBrowser(url);
+  openExternal(url);
 }
 
 export default function TaskCard({ task, accountLabel, active, onClick, repoIndex }: Props) {
