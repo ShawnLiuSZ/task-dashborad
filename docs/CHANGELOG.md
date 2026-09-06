@@ -6,6 +6,16 @@
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
 
+- **v0.3.26（2026-09-06）— 授权登录后账号 modal 自动刷新（#54）**
+
+  - **问题**：在「账号」modal 中完成 GitHub 设备授权登录后，账号列表不会自动刷新，新授权的账号不显示，必须手动关闭再重开 modal 才会出现。
+
+  - **根因**：`AccountsPanel` 把父级 props 快照进本地 state（`useState<Account[]>(settings.accounts)`），此后**没有任何机制把 props 变化同步回本地**。授权成功只调用 `onAccountsChanged()`（父级 `loadSettings()` 刷新 settings），本地 `accounts` 始终不变，只能靠组件重新挂载才刷新。
+
+  - **改动**：`AccountsPanel.tsx` 增加 `useEffect`，把 `settings.accounts` 同步回本地 state；全量替换而非追加，天然避免重复项。顺带修复同源问题——「设为默认」后默认标签不立即更新。
+
+  - **验收**：授权成功回调后账号列表自动刷新、新账号即时显示；无需关闭重开 modal；不出现重复账号或数据错乱。
+
 - **v0.3.25（2026-09-06）— 修复「检查更新」按钮不可点击（#55）**
 
   - **问题**：关于页打开后「检查更新」按钮始终处于 disabled 状态，用户无法主动触发版本检查。根因是 `AboutPanel` 的 `state` 初始值被设为 `{ phase: "loading" }`，把「尚未检查」与「正在检查」复用了同一状态，而按钮的 `disabled` 判断是 `state.phase === "loading"`，导致一打开就被禁用。

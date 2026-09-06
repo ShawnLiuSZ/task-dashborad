@@ -2,6 +2,12 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.26 (2026-09-06) — Auto-refresh the accounts modal after GitHub authorization (#54)**
+  - **Problem**: after completing the GitHub device-flow authorization inside the Accounts modal, the account list did not refresh; the newly authorized account only appeared after closing and reopening the modal.
+  - **Root cause**: `AccountsPanel` snapshotted the parent prop into local state (`useState<Account[]>(settings.accounts)`) with **no mechanism to sync later prop changes back into local state**. On successful authorization it only called `onAccountsChanged()` (the parent runs `loadSettings()`), so the local `accounts` never changed and only a remount could refresh it.
+  - **Changes**: `AccountsPanel.tsx` gained a `useEffect` that syncs `settings.accounts` back into local state; it replaces the list wholesale rather than appending, which inherently avoids duplicates. This also fixes the same-rooted issue where the "default" tag did not update immediately after "Set default".
+  - **Acceptance**: the account list auto-refreshes right after a successful authorization callback and the new account shows immediately; no need to close/reopen the modal; no duplicate accounts or data corruption.
+
 - **v0.3.25 (2026-09-06) — Fix disabled "Check for Updates" button (#55)**
   - **Problem**: the "Check for Updates" button in the About modal was always disabled, so users could never trigger a check manually. Root cause: `AboutPanel` initialised `state` to `{ phase: "loading" }`, reusing one phase for both "not checked yet" and "checking in progress", while the button's `disabled` test was `state.phase === "loading"` — so it was disabled the moment the modal opened.
   - **Changes**: `AboutPanel.tsx` adds an `idle` initial phase (not checked, clickable) and keeps `loading` strictly for "checking in progress"; removed the redundant `checkedOnce` flag; the button shows "Checking…" and is briefly disabled during a check to prevent double-clicks, then becomes clickable again once the check finishes (success or error); the up-to-date status now shows the concrete version number. `zh-CN.json` / `en-US.json`: `about.upToDate` gained a `{version}` placeholder.
