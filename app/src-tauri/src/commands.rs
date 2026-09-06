@@ -973,3 +973,190 @@ pub fn delete_note(state: State<'_, AppState>, id: i64) -> Result<(), String> {
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::db::delete_note(&conn, id)
 }
+
+// v0.3.27+：记事本导入 / 导出（防止破坏性更新时数据丢失）。
+
+/// 导出记事为 JSON 文件，返回写入的完整路径与条数。
+///
+/// 写入位置固定为应用数据目录下 `notes-backup/`（macOS：
+/// `~/Library/Application Support/com.shawnliu.taskboard/notes-backup/`），
+/// 文件名 `notes-backup-YYYYMMDD-HHMMSS.json`。仅含记事业务数据，不含 token 等敏感信息。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ExportNotesResult {
+    pub path: String,
+    pub count: usize,
+}
+
+#[tauri::command]
+pub fn export_notes(state: State<'_, AppState>) -> Result<ExportNotesResult, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let notes = crate::db::list_notes(&conn)?;
+
+    let dir = crate::db::data_dir()?.join("notes-backup");
+    std::fs::create_dir_all(&dir).map_err(|e| format!("创建备份目录失败: {e}"))?;
+
+    let now = crate::sync::now_secs();
+    let ts = format!(
+        "{}{}",
+        time_str(now, "%Y%m%d"),
+        time_str(now, "%H%M%S")
+    );
+    let path = dir.join(format!("notes-backup-{ts}.json"));
+
+    #[derive(serde::Serialize)]
+    struct Payload<'a> {
+        version: u32,
+        exported_at: i64,
+        notes: &'a [crate::db::Note],
+    }
+    let payload = Payload {
+        version: 1,
+        exported_at: now,
+        notes: &notes,
+    };
+    let json = serde_json::to_string_pretty(&payload).map_err(|e| format!("序列化失败: {e}"))?;
+    std::fs::write(&path, json).map_err(|e| format!("写入导出文件失败: {e}"))?;
+
+    Ok(ExportNotesResult {
+        path: path.to_string_lossy().to_string(),
+        count: notes.len(),
+    })
+}
+
+/// 从 JSON 文本导入记事（由前端 file input 读取文件内容后传入，避免依赖文件系统权限）。
+/// 按内容 `content` 去重：已存在的跳过，其余插入并保留原始创建/更新时间。
+/// 返回导入条数与跳过条数。
+#[derive(Debug, Clone, serde::Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ImportNotesResult {
+    pub imported: usize,
+    pub skipped: usize,
+}
+
+#[derive(Debug, serde::Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct ImportNoteItem {
+    #[serde(default)]
+    content: String,
+    #[serde(default)]
+    label: String,
+    #[serde(default)]
+    created_at: i64,
+    #[serde(default)]
+    updated_at: i64,
+}
+
+#[derive(Debug, serde::Deserialize)]
+struct ImportFile {
+    #[allow(dead_code)]
+    version: Option<u32>,
+    notes: Vec<ImportNoteItem>,
+}
+
+#[tauri::command]
+pub fn import_notes(state: State<'_, AppState>, json: String) -> Result<ImportNotesResult, String> {
+    let file: ImportFile =
+        serde_json::from_str(&json).map_err(|e| format!("解析导入数据失败: {e}"))?;
+
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    let now = crate::sync::now_secs();
+    let mut imported = 0usize;
+    let mut skipped = 0usize;
+    for n in file.notes {
+        if n.content.trim().is_empty() {
+            continue;
+        }
+        let label = if n.label.is_empty() {
+            "low".to_string()
+        } else {
+            n.label
+        };
+        let created = if n.created_at > 0 { n.created_at } else { now };
+        let updated = if n.updated_at > 0 { n.updated_at } else { created };
+        match crate::db::import_note(&conn, &n.content, &label, created, updated) {
+            Ok(true) => imported += 1,
+            Ok(false) => skipped += 1,
+            Err(e) => return Err(e),
+        }
+    }
+    Ok(ImportNotesResult { imported, skipped })
+}
+
+/// `now_secs` 按秒格式化为指定 `strftime` 模式（用于导出文件名）。
+fn time_str(ts: i64, fmt: &str) -> String {
+    let secs = ts as i64;
+    let days = secs.div_euclid(86400);
+    let rem = secs.rem_euclid(86400);
+    let (y, m, d) = civil_from_days(days);
+    let h = rem / 3600;
+    let mi = (rem % 3600) / 60;
+    let s = rem % 60;
+    match fmt {
+        "%Y%m%d" => format!("{y:04}{m:02}{d:02}"),
+        "%H%M%S" => format!("{h:02}{mi:02}{s:02}"),
+        _ => format!("{y:04}{m:02}{d:02}-{h:02}{mi:02}{s:02}"),
+    }
+}
+
+/// 自 1970-01-01 的 days 起算 civil date（EPOCH 兼容，无依赖）。
+fn civil_from_days(z: i64) -> (i64, i64, i64) {
+    let z = z + 719468;
+    let era = z.div_euclid(146097);
+    let doe = z.rem_euclid(146097);
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365;
+    let y = yoe + era * 400;
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
+    let mp = (5 * doy + 2) / 153;
+    let d = doy - (153 * mp + 2) / 5 + 1;
+    let m = if mp < 10 { mp + 3 } else { mp - 9 };
+    (if m <= 2 { y + 1 } else { y }, m, d)
+}
+
+#[cfg(test)]
+mod tests {
+    use rusqlite::Connection;
+
+    /// 打开内存库临时文件的连接，并初始化 schema。
+    fn mem_conn() -> Connection {
+        let path = std::env::temp_dir().join(format!(
+            "taskboard_cmds_test_{}.db",
+            std::process::id()
+        ));
+        let _ = std::fs::remove_file(&path);
+        let conn = crate::db::open_db(&path).expect("打开测试库");
+        // 测试进程结束后清理
+        let _ = std::fs::remove_file(&path);
+        conn
+    }
+
+    // 导出文件名的时间戳：epoch 0、近期典型值。
+    #[test]
+    fn time_str_formats_epoch_and_boundaries() {
+        assert_eq!(super::time_str(0, "%Y%m%d"), "19700101");
+        assert_eq!(super::time_str(0, "%H%M%S"), "000000");
+        // 2025-01-05 08:00:00 UTC
+        assert_eq!(super::time_str(1736064000i64, "%Y%m%d"), "20250105");
+        assert_eq!(super::time_str(1736064000i64, "%H%M%S"), "080000");
+        // 1972-12-19 08:00:00 UTC
+        assert_eq!(super::time_str(93600000, "%Y%m%d"), "19721219");
+    }
+
+    // 导入去重：相同 content 只插入一次，保留时间字段。
+    #[test]
+    fn import_note_dedupes_by_content() {
+        let conn = mem_conn();
+        let first = crate::db::import_note(&conn, "hello", "low", 100, 200).unwrap();
+        assert!(first, "首次应插入");
+        let dup = crate::db::import_note(&conn, "hello", "high", 300, 400).unwrap();
+        assert!(!dup, "重复 content 应跳过");
+        let other = crate::db::import_note(&conn, "world", "medium", 500, 600).unwrap();
+        assert!(other, "不同 content 应插入");
+        let all = crate::db::list_notes(&conn).unwrap();
+        assert_eq!(all.len(), 2, "应有 2 条（hello + world）");
+        let hello = all.iter().find(|n| n.content == "hello").unwrap();
+        assert_eq!(hello.created_at, 100);
+        assert_eq!(hello.updated_at, 200);
+        assert_eq!(hello.label, "low");
+    }
+}

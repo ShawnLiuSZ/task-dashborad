@@ -241,6 +241,9 @@ pub fn run() {
             commands::update_note,
             commands::update_note_label,
             commands::delete_note,
+            // v0.3.27+：记事本导出 / 导入。
+            commands::export_notes,
+            commands::import_notes,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");
