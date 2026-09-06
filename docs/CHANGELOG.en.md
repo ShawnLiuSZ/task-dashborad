@@ -2,6 +2,11 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.27 (2026-09-06) — Notepad export / import (#53)**
+  - **Background**: destructive updates (reinstall / data wipe / upgrade accidentally deleting SQLite) could lose local notepad data, and there was no backup/restore entry point.
+  - **Changes**: backend adds two Tauri commands `export_notes` and `import_notes` — exports all notes to JSON under the app data dir `notes-backup/`; import dedupes by content, preserves original timestamps, and never overwrites existing data. The `NotesPanel` header gains export/import icon buttons; after export it shows the saved path, after import it reports "added / skipped" counts.
+  - **Acceptance**: exported file is complete and readable; importing restores notes (content, label, timestamps) fully; repeated imports create no duplicates; data can be recovered after a destructive update. See KB doc [docs/issue-53-notes-backup.md](./issue-53-notes-backup.md).
+
 - **v0.3.26 (2026-09-06) — Auto-refresh the accounts modal after GitHub authorization (#54)**
   - **Problem**: after completing the GitHub device-flow authorization inside the Accounts modal, the account list did not refresh; the newly authorized account only appeared after closing and reopening the modal.
   - **Root cause**: `AccountsPanel` snapshotted the parent prop into local state (`useState<Account[]>(settings.accounts)`) with **no mechanism to sync later prop changes back into local state**. On successful authorization it only called `onAccountsChanged()` (the parent runs `loadSettings()`), so the local `accounts` never changed and only a remount could refresh it.

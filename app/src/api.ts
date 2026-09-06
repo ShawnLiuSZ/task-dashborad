@@ -107,6 +107,11 @@ export const api = {
   updateNoteLabel: (id: number, label: string) =>
     invoke<Note>("update_note_label", { id, label }),
   deleteNote: (id: number) => invoke<void>("delete_note", { id }),
+  // v0.3.27+：记事本导出 / 导入。
+  exportNotes: () =>
+    invoke<{ path: string; count: number }>("export_notes"),
+  importNotes: (json: string) =>
+    invoke<{ imported: number; skipped: number }>("import_notes", { json }),
 };
 export function onSynced(cb: (r: SyncResult) => void) {
   return listen<SyncResult>(SYNCED_EVENT, (e) => cb(e.payload));

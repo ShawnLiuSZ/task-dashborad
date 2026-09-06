@@ -1209,3 +1209,30 @@ pub fn delete_note(conn: &Connection, id: i64) -> Result<(), String> {
     }
     Ok(())
 }
+
+/// v0.3.27+：导入记事。按内容 `content` 去重，已存在则跳过；保留导入文件的
+/// 创建/更新时间。返回是否真正插入（`true`=新插入，`false`=重复跳过）。
+pub fn import_note(
+    conn: &Connection,
+    content: &str,
+    label: &str,
+    created_at: i64,
+    updated_at: i64,
+) -> Result<bool, String> {
+    let exists: bool = conn
+        .query_row(
+            "SELECT EXISTS(SELECT 1 FROM notes WHERE content = ?1)",
+            [content],
+            |r| r.get(0),
+        )
+        .map_err(|e| format!("查重记事失败: {e}"))?;
+    if exists {
+        return Ok(false);
+    }
+    conn.execute(
+        "INSERT INTO notes (content, label, created_at, updated_at) VALUES (?1, ?2, ?3, ?4)",
+        rusqlite::params![content, label, created_at, updated_at],
+    )
+    .map_err(|e| format!("导入记事失败: {e}"))?;
+    Ok(true)
+}
