@@ -66,27 +66,46 @@ function BoardApp() {
 
   const loadProjectStatuses = useCallback(async () => {
     try {
-      const activeId = settings?.activeAccountId;
-      if (activeId) {
-        const all = await api.listProjectStatuses(activeId);
-        // 按 project_github_id 分组，取条目数最多的项目（主项目）的状态
-        const byProject = new Map<string, typeof all>();
-        for (const ps of all) {
-          const arr = byProject.get(ps.projectGithubId) ?? [];
-          arr.push(ps);
-          byProject.set(ps.projectGithubId, arr);
+      if (!settings) return;
+      const activeId = settings.activeAccountId;
+      if (!activeId) return;
+
+      // viewMode="all" 时聚合所有账号的 project_statuses，按字母序合并去重
+      // （聚合视图下每个账号可能属于不同项目，无法用单一 order_index）
+      if (settings.viewMode === "all") {
+        const accounts = settings.accounts ?? [];
+        const merged = new Map<string, ProjectStatus>();
+        for (const a of accounts) {
+          if (!a.id) continue;
+          const list = await api.listProjectStatuses(a.id);
+          for (const ps of list) {
+            // 去重：同名状态只保留第一个（按首次出现顺序）
+            if (!merged.has(ps.name)) merged.set(ps.name, ps);
+          }
         }
-        // 取条目最多的项目
-        let best: typeof all = [];
-        for (const arr of byProject.values()) {
-          if (arr.length > best.length) best = arr;
-        }
-        setProjectStatuses(best);
+        setProjectStatuses([...merged.values()].sort((a, b) => a.name.localeCompare(b.name)));
+        return;
       }
+
+      // 单账号视图：取条目数最多的项目（主项目）的状态，按 order_index 排序
+      const all = await api.listProjectStatuses(activeId);
+      const byProject = new Map<string, typeof all>();
+      for (const ps of all) {
+        const arr = byProject.get(ps.projectGithubId) ?? [];
+        arr.push(ps);
+        byProject.set(ps.projectGithubId, arr);
+      }
+      let best: typeof all = [];
+      for (const arr of byProject.values()) {
+        if (arr.length > best.length) best = arr;
+      }
+      // 确保按 order_index 正序（后端已按此排序，但重新过滤后可能丢失）
+      best.sort((a, b) => a.orderIndex - b.orderIndex);
+      setProjectStatuses(best);
     } catch (e) {
       console.warn("加载项目状态选项失败:", e);
     }
-  }, [settings?.activeAccountId]);
+  }, [settings]);
 
   useEffect(() => {
     void load();
@@ -94,7 +113,7 @@ function BoardApp() {
     const un = onSynced((r) => {
       void load();
       void loadSettings();
-      void loadProjectStatuses();
+      // loadProjectStatuses 依赖 settings，下面的 useEffect 会在 settings 变化时自动触发
       const warn = r.warning ? ` · ⚠️ ${r.warning}` : "";
       const prune = r.pruned > 0 ? ` · ${t("sync.pruned", { n: r.pruned })}` : "";
       setLastResult(
@@ -106,10 +125,11 @@ function BoardApp() {
     };
   }, [load, loadSettings, t]);
 
-  // settings 加载完成后拉取项目 Status 选项
+  // settings 就绪（activeAccountId / viewMode / accounts 任一变化）后拉取项目 Status 选项
   useEffect(() => {
+    if (!settings) return;
     void loadProjectStatuses();
-  }, [loadProjectStatuses]);
+  }, [settings, loadProjectStatuses]);
 
   // 仓库列表（去重排序），用于仓库筛选下拉。
   const repos = useMemo(
