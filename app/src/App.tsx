@@ -324,22 +324,30 @@ function BoardApp() {
           </button>
         )}
 
-        {/* v0.3.21+：看板列模式切换（Project Status 列视图） */}
+        {/* v0.3.21+：看板列模式切换（status 四态 / project Project Status / custom 自定义列） */}
         <select
           className="select"
           value={settings?.boardMode ?? "project"}
           onChange={(e) => {
             const mode = e.target.value as BoardMode;
             if (mode !== settings?.boardMode) {
-              void api.setBoardMode(mode);
-              void loadSettings();
+              // 必须串行：并发执行时 get_settings 可能返回旧的 boardMode，把用户选择覆盖回去。
+              void (async () => {
+                try {
+                  await api.setBoardMode(mode);
+                  await loadSettings();
+                } catch (err) {
+                  setError(String(err));
+                }
+              })();
             }
           }}
           title={t("settings.boardModeTitle")}
         >
+          <option value="status">{t("settings.boardModeStatus")}</option>
           <option value="project">{t("settings.boardModeProject")}</option>
-              <option value="custom">{t("settings.boardModeCustom")}</option>
-	        </select>
+          <option value="custom">{t("settings.boardModeCustom")}</option>
+        </select>
       </div>
 
       {(error || lastResult) && (
