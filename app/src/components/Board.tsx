@@ -36,13 +36,14 @@ function groupByProjectStatus(tasks: Task[]): Map<string, Task[]> {
   return map;
 }
 
-// 按 project_statuses 表的 order_index 排序；无表数据时回退到原始顺序。
+// 按 project_statuses 表的 order_index 排序；无表数据时回退到字母序（稳定可预测）。
 function sortProjectStatusKeys(
   keys: string[],
   projectStatuses?: ProjectStatus[],
 ): string[] {
   if (!projectStatuses || projectStatuses.length === 0) {
-    return keys;
+    // 无 project_statuses 表数据时，按字母序排序，避免返回 tasks 遍历顺序导致的不稳定渲染
+    return [...keys].sort((a, b) => a.localeCompare(b));
   }
   const orderMap = new Map<string, number>();
   for (const ps of projectStatuses) {
