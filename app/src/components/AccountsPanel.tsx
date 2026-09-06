@@ -17,6 +17,12 @@ export default function AccountsPanel({
 }: Props) {
   const { t } = useI18n();
   const [accounts, setAccounts] = useState<Account[]>(settings.accounts);
+  // 账号数据来自父级 settings：授权成功 / 设默认后父级会刷新 settings，
+  // 必须把 props 变化同步回本地 state，否则只有重新挂载（关闭重开 modal）才看得到新账号。
+  // 全量替换而非追加，天然避免重复项。
+  useEffect(() => {
+    setAccounts(settings.accounts);
+  }, [settings.accounts]);
   const [addingAccount, setAddingAccount] = useState(false);
   const [newLabel, setNewLabel] = useState("");
   const [newOrg, setNewOrg] = useState("");
