@@ -3,11 +3,9 @@ use serde::Serialize;
 use std::time::Duration;
 use tauri::{AppHandle, Manager, State};
 
-use crate::db::{Account, LabelMapping, LabelMappingInput};
+use crate::db::{Account, AccountColumn, LabelMapping, LabelMappingInput};
 use crate::sync::SyncResult;
 use crate::AppState;
-
-const VALID_STATUS: &[&str] = &["todo", "doing", "processed", "done"];
 
 #[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
@@ -192,22 +190,23 @@ pub async fn sync_now(app: AppHandle) -> Result<SyncResult, String> {
 }
 
 #[tauri::command]
-pub fn update_task_status(
-    state: State<'_, AppState>,
-    key: String,
-    status: String,
-) -> Result<(), String> {
-    if !VALID_STATUS.contains(&status.as_str()) {
-        return Err(format!("非法状态: {}", status));
-    }
-    let conn = state.db.lock().map_err(|e| e.to_string())?;
-    conn.execute(
-        "UPDATE tasks SET status = ?1 WHERE key = ?2",
-        rusqlite::params![status, key],
-    )
-    .map_err(|e| e.to_string())?;
-    Ok(())
-}
+	pub fn update_task_status(
+	    state: State<'_, AppState>,
+	    key: String,
+	    status: String,
+	) -> Result<(), String> {
+	    // 允许自定义列值（col_0, col_1 等）通过；空串视为非法。
+	    if status.trim().is_empty() {
+	        return Err("状态不能为空".to_string());
+	    }
+	    let conn = state.db.lock().map_err(|e| e.to_string())?;
+	    conn.execute(
+	        "UPDATE tasks SET status = ?1 WHERE key = ?2",
+	        rusqlite::params![status, key],
+	    )
+	    .map_err(|e| e.to_string())?;
+	    Ok(())
+	}
 
 #[tauri::command]
 pub fn record_session(
@@ -698,12 +697,12 @@ pub fn set_view_mode(state: State<'_, AppState>, mode: String) -> Result<(), Str
     Ok(())
 }
 
-/// 设置看板列模式：'status' / 'label'。
-#[tauri::command]
-pub fn set_board_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
-    if mode != "status" && mode != "label" {
-        return Err(format!("非法看板模式: {mode}（应为 status / label）"));
-    }
+/// 设置看板列模式：'status' / 'project' / 'custom'。
+	#[tauri::command]
+	pub fn set_board_mode(state: State<'_, AppState>, mode: String) -> Result<(), String> {
+	    if mode != "status" && mode != "project" && mode != "custom" {
+	        return Err(format!("非法看板模式: {mode}（应为 status / project / custom）"));
+	    }
     let conn = state.db.lock().map_err(|e| e.to_string())?;
     crate::db::set_setting(&conn, "board_mode", &mode)?;
     Ok(())
@@ -1081,6 +1080,31 @@ pub fn import_notes(state: State<'_, AppState>, json: String) -> Result<ImportNo
         }
     }
     Ok(ImportNotesResult { imported, skipped })
+}
+
+// ============================================================================
+// v0.3.28+：自定义列映射（按账号配置看板列）
+// ============================================================================
+
+/// 列出某账号下所有自定义列。
+#[tauri::command]
+pub fn list_account_columns(
+    state: State<'_, AppState>,
+    account_id: i64,
+) -> Result<Vec<AccountColumn>, String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::list_account_columns(&conn, account_id)
+}
+
+/// 保存某账号的列配置（全量替换）。
+#[tauri::command]
+pub fn save_account_columns(
+    state: State<'_, AppState>,
+    account_id: i64,
+    columns: Vec<AccountColumn>,
+) -> Result<(), String> {
+    let conn = state.db.lock().map_err(|e| e.to_string())?;
+    crate::db::save_account_columns(&conn, account_id, &columns)
 }
 
 /// `now_secs` 按秒格式化为指定 `strftime` 模式（用于导出文件名）。

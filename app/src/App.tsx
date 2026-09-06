@@ -8,7 +8,7 @@ import AboutPanel from "./components/AboutPanel";
 import AccountsPanel from "./components/AccountsPanel";
 import SyncLogsPanel from "./components/SyncLogsPanel";
 import NotesPanel from "./components/NotesPanel";
-import type { Account, BoardMode, ProjectStatus, Settings as SettingsT, Task } from "./types";
+import type { Account, AccountColumn, BoardMode, ProjectStatus, Settings as SettingsT, Task } from "./types";
 
 export default function App() {
   return (
@@ -31,6 +31,7 @@ function BoardApp() {
   const [error, setError] = useState<string | null>(null);
   const [lastResult, setLastResult] = useState<string | null>(null);
   const [projectStatuses, setProjectStatuses] = useState<ProjectStatus[]>([]);
+  const [accountColumns, setAccountColumns] = useState<AccountColumn[]>([]);
 
   // 同步结果 banner 4 秒后自动消失（错误 banner 不受影响，由下次操作覆盖）。
   useEffect(() => {
@@ -107,6 +108,39 @@ function BoardApp() {
     }
   }, [settings]);
 
+  // v0.3.28+：加载自定义列配置
+  const loadAccountColumns = useCallback(async () => {
+    try {
+      if (!settings) return;
+      const activeId = settings.activeAccountId;
+      if (!activeId) {
+        setAccountColumns([]);
+        return;
+      }
+
+      if (settings.viewMode === "all") {
+        // 聚合视图：合并所有账号的自定义列（按 col_key 去重）
+        const accounts = settings.accounts ?? [];
+        const merged = new Map<string, AccountColumn>();
+        for (const a of accounts) {
+          if (!a.id) continue;
+          const list = await api.listAccountColumns(a.id);
+          for (const col of list) {
+            if (!merged.has(col.colKey)) merged.set(col.colKey, col);
+          }
+        }
+        setAccountColumns([...merged.values()].sort((a, b) => a.orderIndex - b.orderIndex));
+        return;
+      }
+
+      // 单账号视图
+      const cols = await api.listAccountColumns(activeId);
+      setAccountColumns(cols.sort((a, b) => a.orderIndex - b.orderIndex));
+    } catch (e) {
+      console.warn("加载自定义列配置失败:", e);
+    }
+  }, [settings]);
+
   useEffect(() => {
     void load();
     void loadSettings();
@@ -125,11 +159,12 @@ function BoardApp() {
     };
   }, [load, loadSettings, t]);
 
-  // settings 就绪（activeAccountId / viewMode / accounts 任一变化）后拉取项目 Status 选项
+  // settings 就绪（activeAccountId / viewMode / accounts 任一变化）后拉取项目 Status 选项和自定义列
   useEffect(() => {
     if (!settings) return;
     void loadProjectStatuses();
-  }, [settings, loadProjectStatuses]);
+    void loadAccountColumns();
+  }, [settings, loadProjectStatuses, loadAccountColumns]);
 
   // 仓库列表（去重排序），用于仓库筛选下拉。
   const repos = useMemo(
@@ -303,7 +338,8 @@ function BoardApp() {
           title={t("settings.boardModeTitle")}
         >
           <option value="project">{t("settings.boardModeProject")}</option>
-        </select>
+              <option value="custom">{t("settings.boardModeCustom")}</option>
+	        </select>
       </div>
 
       {(error || lastResult) && (
@@ -323,6 +359,7 @@ function BoardApp() {
             accounts={accountMap}
             boardMode={settings?.boardMode ?? "project"}
             projectStatuses={projectStatuses}
+            accountColumns={accountColumns}
           />
         </div>
       </div>

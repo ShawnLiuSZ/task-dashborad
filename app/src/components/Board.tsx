@@ -1,4 +1,4 @@
-import { COLUMNS, type Account, type ProjectStatus, type StatusKey, type Task, type BoardMode } from "../types";
+import { COLUMNS, type Account, type AccountColumn, type ProjectStatus, type StatusKey, type Task, type BoardMode } from "../types";
 import { useT } from "../i18n";
 import TaskCard from "./TaskCard";
 
@@ -12,6 +12,8 @@ interface Props {
   boardMode?: BoardMode;
   /** v0.3.22+：项目 Status 选项（来自 project_statuses 表，用于列排序）。 */
   projectStatuses?: ProjectStatus[];
+  /** v0.3.28+：自定义列配置（按账号配置看板列）。 */
+  accountColumns?: AccountColumn[];
 }
 
 // GitHub Project Status 原文到显示用键的映射（用于分组去重）。
@@ -67,6 +69,7 @@ export default function Board({
   accounts,
   boardMode = "status",
   projectStatuses,
+  accountColumns,
 }: Props) {
   const t = useT();
 
@@ -131,6 +134,73 @@ export default function Board({
             </section>
           );
         })}
+      </div>
+    );
+  }
+
+  if (boardMode === "custom" && accountColumns && accountColumns.length > 0) {
+    // 自定义列视图（按账号配置渲染）
+    const byColumn = (colKey: string) =>
+      tasks.filter((task) => task.status === colKey);
+    // 无匹配的任务归入「未分类」列
+    const unmatched = tasks.filter(
+      (task) => !accountColumns.some((col) => task.status === col.colKey),
+    );
+
+    // 构建 repo name -> 颜色索引映射
+    const allRepos = [...new Set(tasks.map((t) => t.repo))].sort();
+    const repoIndexMap = new Map<string, number>();
+    allRepos.forEach((r, i) => repoIndexMap.set(r, i));
+
+    return (
+      <div className="board">
+        {accountColumns.map((col, idx) => {
+          const items = byColumn(col.colKey);
+          return (
+            <section key={col.colKey} className={`column column-status-${idx % 20}`}>
+              <div className="column-head">
+                <span className={`dot dot-status-${idx % 20}`} />
+                <span className="column-title">{col.colName}</span>
+                <span className="count">{items.length}</span>
+              </div>
+              <div className="column-body">
+                {items.length === 0 && <div className="empty">{col.colName}</div>}
+                {items.map((task) => (
+                  <TaskCard
+                    key={task.key}
+                    task={task}
+                    accountLabel={accounts?.get(task.accountId)?.label}
+                    active={task.key === selected}
+                    onClick={() => onSelect(task.key)}
+                    repoIndex={repoIndexMap.get(task.repo) ?? 0}
+                  />
+                ))}
+              </div>
+            </section>
+          );
+        })}
+        {/* 未匹配任务列 */}
+        {unmatched.length > 0 && (
+          <section className="column column-unclassified">
+            <div className="column-head">
+              <span className="dot dot-unclassified" />
+              <span className="column-title">{t("detail.unlabeled")}</span>
+              <span className="count">{unmatched.length}</span>
+            </div>
+            <div className="column-body">
+              {unmatched.map((task) => (
+                <TaskCard
+                  key={task.key}
+                  task={task}
+                  accountLabel={accounts?.get(task.accountId)?.label}
+                  active={task.key === selected}
+                  onClick={() => onSelect(task.key)}
+                  repoIndex={repoIndexMap.get(task.repo) ?? 0}
+                />
+              ))}
+            </div>
+          </section>
+        )}
       </div>
     );
   }

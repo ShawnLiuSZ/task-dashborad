@@ -6,6 +6,20 @@
 
 > TaskBoard 各版本的更新说明与修复记录。当前版本与项目概览见 [README](../README.md)。
 
+- **v0.3.28（2026-09-06）— 自定义列映射（#52）**
+
+  - **背景**：每个账号可能使用不同的 GitHub Project Status 值体系，看板需要支持按账号自定义列映射规则，而非只有固定的四态列或 Project Status 列。
+
+  - **改动**：
+
+    - 后端新增 `account_columns` 表，支持按账号独立配置列（col_key、col_name、match_rules、order_index）；新增 `list_account_columns`、`save_account_columns` 两个 Tauri command；`sync.rs` 状态判定中自定义列映射优先于 label 映射和 Project Status 映射。
+
+    - 前端 `Board.tsx` 新增 `custom` 模式渲染，按账号配置动态生成列，无匹配任务归入「未分类」列；`App.tsx` 看板模式下拉新增「自定义列」选项；`SettingsPanel.tsx` 新增列映射编辑界面（账号选择 → 列列表 → 增删改 → 保存）。
+
+    - i18n 新增 12 个 key（zh-CN / en-US）。
+
+  - **验收**：各账号可独立配置列映射规则；同步后匹配的任务自动归入对应列；切换看板模式为「自定义列」按自定义列渲染；关闭的任务始终归入「已完成」。详见知识库文档 [docs/issue-52-custom-column-mapping.md](./issue-52-custom-column-mapping.md)。
+
 - **v0.3.27（2026-09-06）— 记事本导出 / 导入功能（#53）**
 
   - **背景**：破坏性更新（重新安装 / 清空数据 / 升级误删 SQLite）可能导致本地记事本数据丢失，此前无任何备份恢复入口。
