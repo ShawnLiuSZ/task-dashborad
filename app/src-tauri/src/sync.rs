@@ -335,7 +335,7 @@ fn sync_account(
             )
             .is_ok();
 
-        // 决定看板状态：closed→已完成；命中 label 映射→映射状态；项目中→按 Project Status 映射；不在项目中→维持本地手动态。
+        // 决定看板状态：closed→已完成；自定义列 gh_status 匹配→列 key；label 映射→映射状态；Project Status→映射；不在项目中→维持本地手动态。
         let gh_status_raw = project_status.get(&key).cloned().unwrap_or_default();
         let labels_csv = t.labels.join(",");
         // 先用 label 映射解析（优先级：repo > org > 全局默认 > state 兜底）
@@ -346,8 +346,17 @@ fn sync_account(
             &labels_csv,
             &t.state,
         );
+        // v0.3.28+：检查自定义列映射（按账号的 account_columns 匹配 gh_status）
+        let column_status = if !gh_status_raw.is_empty() {
+            crate::db::resolve_column_from_gh_status(conn, account.id, &gh_status_raw)
+        } else {
+            None
+        };
         let final_status: String = if t.state == "closed" {
             "done".to_string()
+        } else if let Some(col_key) = column_status {
+            // 自定义列映射优先于 label 映射和 Project Status 映射
+            col_key
         } else if !mapped_status.is_empty() && mapped_status != "todo" {
             mapped_status
         } else if !gh_status_raw.is_empty() {

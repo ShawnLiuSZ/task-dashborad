@@ -244,6 +244,9 @@ pub fn run() {
             // v0.3.27+：记事本导出 / 导入。
             commands::export_notes,
             commands::import_notes,
+            // v0.3.28+：自定义列映射（按账号配置看板列）。
+            commands::list_account_columns,
+            commands::save_account_columns,
         ])
         .run(tauri::generate_context!())
         .expect("TaskBoard 启动失败");

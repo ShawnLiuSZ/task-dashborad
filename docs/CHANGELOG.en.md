@@ -2,6 +2,11 @@
 
 > Per-version release notes and fix records for TaskBoard. For the current version and a project overview, see [README](../README.md).
 
+- **v0.3.28 (2026-09-06) — Custom column mapping (#52)**
+  - **Background**: each account may use a different set of GitHub Project Status values; the board needs per-account custom column mapping rules instead of only fixed four-state columns or Project Status columns.
+  - **Changes**: backend adds `account_columns` table supporting per-account column config (col_key, col_name, match_rules, order_index); adds `list_account_columns` and `save_account_columns` Tauri commands; custom column mapping takes priority over label mapping and Project Status mapping in `sync.rs` status determination. Frontend `Board.tsx` adds `custom` mode rendering with dynamic columns per account config (unmatched tasks fall into "Unclassified" column); `App.tsx` adds "Custom Columns" option to the board mode dropdown; `SettingsPanel.tsx` adds column mapping editing UI (select account → column list → add/edit/delete → save). i18n adds 12 keys (zh-CN / en-US).
+  - **Acceptance**: each account can independently configure column mapping rules; matched tasks auto-sort into the corresponding columns after sync; selecting "Custom Columns" board mode renders the custom columns; closed tasks always go to "Done". See KB doc [docs/issue-52-custom-column-mapping.md](./issue-52-custom-column-mapping.md).
+
 - **v0.3.27 (2026-09-06) — Notepad export / import (#53)**
   - **Background**: destructive updates (reinstall / data wipe / upgrade accidentally deleting SQLite) could lose local notepad data, and there was no backup/restore entry point.
   - **Changes**: backend adds two Tauri commands `export_notes` and `import_notes` — exports all notes to JSON under the app data dir `notes-backup/`; import dedupes by content, preserves original timestamps, and never overwrites existing data. The `NotesPanel` header gains export/import icon buttons; after export it shows the saved path, after import it reports "added / skipped" counts.

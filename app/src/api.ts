@@ -2,6 +2,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import type {
   Account,
+  AccountColumn,
   BoardMode,
   CheckUpdate,
   DeviceLoginPoll,
@@ -112,6 +113,11 @@ export const api = {
     invoke<{ path: string; count: number }>("export_notes"),
   importNotes: (json: string) =>
     invoke<{ imported: number; skipped: number }>("import_notes", { json }),
+  // v0.3.28+：自定义列映射（按账号配置看板列）。
+  listAccountColumns: (accountId: number) =>
+    invoke<AccountColumn[]>("list_account_columns", { accountId }),
+  saveAccountColumns: (accountId: number, columns: AccountColumn[]) =>
+    invoke<void>("save_account_columns", { accountId, columns }),
 };
 export function onSynced(cb: (r: SyncResult) => void) {
   return listen<SyncResult>(SYNCED_EVENT, (e) => cb(e.payload));
